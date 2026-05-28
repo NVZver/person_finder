@@ -1,12 +1,14 @@
-"""LangChain agent that turns a list of names into a JSON enrichment string.
+"""LangChain agent that turns a list of names into a parsed JSON dict.
 
 The agent answers from the LLM's own training knowledge (no external tools),
-matching the assignment's Exercises 4-5. A separate `repair` callable is
-exposed for the validation layer's retry loop.
+matching the assignment's Exercises 4-5. If the model's reply fails to parse
+as JSON, the parse error is sent back to the model with a "fix it" instruction,
+up to MAX_RETRIES times.
 """
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from langchain.agents import create_agent
@@ -30,13 +32,7 @@ Rules:
 - Output ONLY the JSON object. No prose, no markdown fences.
 """
 
-REPAIR_SYSTEM_PROMPT = """You previously produced output that failed schema validation.
-
-Required schema: {"data": [{"person": str, "info": str}]}.
-
-Return ONLY a corrected JSON object matching that schema. No prose, no markdown
-fences. Do not invent new people; preserve the original `person` values.
-"""
+MAX_RETRIES = 3
 
 
 def _model() -> ChatGroq:
@@ -47,31 +43,36 @@ def _model() -> ChatGroq:
     )
 
 
-def enrich_names(names: list[str], *, model: Any | None = None) -> str:
+def enrich_names(names: list[str], *, model: Any | None = None) -> dict[str, Any]:
+    """Ask the LLM to identify each name; re-prompt on JSON parse failure.
+
+    Returns the parsed JSON dict. After MAX_RETRIES failed parses, raises the
+    final `json.JSONDecodeError`.
+    """
     agent = create_agent(
         model=model if model is not None else _model(),
         tools=[],
         system_prompt=SYSTEM_PROMPT,
     )
-    user_msg = "Identify these people:\n" + "\n".join(f"- {n}" for n in names)
-    result = agent.invoke({"messages": [{"role": "user", "content": user_msg}]})
-    return result["messages"][-1].content
-
-
-def repair(broken_raw: str, error_msg: str, *, model: Any | None = None) -> str:
-    """One-shot LLM repair pass for the validation layer's retry loop."""
-    llm = model if model is not None else _model()
-    response = llm.invoke(
-        [
-            {"role": "system", "content": REPAIR_SYSTEM_PROMPT},
-            {
-                "role": "user",
-                "content": (
-                    f"Previous output failed validation: {error_msg}\n\n"
-                    f"Broken output was:\n{broken_raw}\n\n"
-                    "Return a corrected JSON object only."
-                ),
-            },
-        ]
-    )
-    return response.content
+    messages: list[Any] = [
+        {
+            "role": "user",
+            "content": "Identify these people:\n" + "\n".join(f"- {n}" for n in names),
+        }
+    ]
+    last_error: json.JSONDecodeError | None = None
+    for _ in range(MAX_RETRIES + 1):
+        result = agent.invoke({"messages": messages})
+        raw = result["messages"][-1].content
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError as exc:
+            last_error = exc
+            messages = list(result["messages"]) + [
+                {
+                    "role": "user",
+                    "content": f"[Invalid JSON] {exc}, fix and return valid JSON only",
+                }
+            ]
+    assert last_error is not None
+    raise last_error

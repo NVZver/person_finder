@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 from pathlib import Path
@@ -13,30 +14,72 @@ from langchain_core.messages import AIMessage
 from person_finder import agent as agent_module
 
 
-def test_enrich_names_invokes_agent_with_names_and_returns_content(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    canned_json = '{"data":[{"person":"Ada Lovelace","info":"Mathematician"}]}'
+class _StubAgent:
+    """Records each invoke + returns canned message contents in order."""
+
+    def __init__(self, responses: list[str]) -> None:
+        self.responses = list(responses)
+        self.invocations: list[list[Any]] = []
+
+    def invoke(self, payload: dict[str, Any]) -> dict[str, Any]:
+        self.invocations.append(payload["messages"])
+        return {"messages": payload["messages"] + [AIMessage(content=self.responses.pop(0))]}
+
+
+def _patch_create_agent(monkeypatch: pytest.MonkeyPatch, stub: _StubAgent) -> dict[str, Any]:
     captured: dict[str, Any] = {}
 
-    class _FakeAgent:
-        def invoke(self, payload: dict[str, Any]) -> dict[str, Any]:
-            captured["payload"] = payload
-            return {"messages": [AIMessage(content=canned_json)]}
+    def _factory(**kwargs: Any) -> _StubAgent:
+        captured.update(kwargs)
+        return stub
 
-    def _spy_create_agent(**kwargs: Any) -> _FakeAgent:
-        captured["create_agent_kwargs"] = kwargs
-        return _FakeAgent()
+    monkeypatch.setattr(agent_module, "create_agent", _factory)
+    return captured
 
-    monkeypatch.setattr(agent_module, "create_agent", _spy_create_agent)
 
-    result = agent_module.enrich_names(["Ada Lovelace"], model="sentinel-model")
+def test_enrich_names_returns_parsed_dict_on_first_try(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    canned = '{"data":[{"person":"Ada Lovelace","info":"Mathematician"}]}'
+    stub = _StubAgent([canned])
+    captured = _patch_create_agent(monkeypatch, stub)
 
-    assert result == canned_json
-    assert captured["create_agent_kwargs"]["model"] == "sentinel-model"
-    assert captured["create_agent_kwargs"]["tools"] == []
-    assert "JSON object" in captured["create_agent_kwargs"]["system_prompt"]
-    assert "Ada Lovelace" in captured["payload"]["messages"][0]["content"]
+    result = agent_module.enrich_names(["Ada Lovelace"], model="sentinel")
+
+    assert result == {"data": [{"person": "Ada Lovelace", "info": "Mathematician"}]}
+    assert len(stub.invocations) == 1
+    assert captured["model"] == "sentinel"
+    assert captured["tools"] == []
+    assert "Ada Lovelace" in stub.invocations[0][0]["content"]
+
+
+def test_enrich_names_retries_with_error_message_on_bad_json(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    canned_good = '{"data":[{"person":"Ada","info":"<Not found>"}]}'
+    stub = _StubAgent(["not json", canned_good])
+    _patch_create_agent(monkeypatch, stub)
+
+    result = agent_module.enrich_names(["Ada"], model="sentinel")
+
+    assert result == {"data": [{"person": "Ada", "info": "<Not found>"}]}
+    assert len(stub.invocations) == 2
+    # Second invocation must include a user message with the "[Invalid JSON]" prompt.
+    repair_msg = stub.invocations[1][-1]
+    assert repair_msg["role"] == "user"
+    assert "[Invalid JSON]" in repair_msg["content"]
+    assert "fix and return valid JSON only" in repair_msg["content"]
+
+
+def test_enrich_names_raises_after_three_retries(monkeypatch: pytest.MonkeyPatch) -> None:
+    stub = _StubAgent(["bad"] * (agent_module.MAX_RETRIES + 1))
+    _patch_create_agent(monkeypatch, stub)
+
+    with pytest.raises(json.JSONDecodeError):
+        agent_module.enrich_names(["Ada"], model="sentinel")
+
+    # Initial attempt + MAX_RETRIES = 4 total invocations.
+    assert len(stub.invocations) == agent_module.MAX_RETRIES + 1
 
 
 def test_enrich_names_without_groq_key_raises(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -45,30 +88,6 @@ def test_enrich_names_without_groq_key_raises(monkeypatch: pytest.MonkeyPatch) -
 
     with pytest.raises(ValidationError):
         agent_module.enrich_names(["Ada Lovelace"])
-
-
-def test_repair_invokes_model_and_returns_content() -> None:
-    canned = '{"data":[{"person":"Ada","info":"<Not found>"}]}'
-
-    class _FakeMsg:
-        def __init__(self, content: str) -> None:
-            self.content = content
-
-    class _FakeModel:
-        def __init__(self) -> None:
-            self.calls: list[Any] = []
-
-        def invoke(self, messages: Any) -> Any:
-            self.calls.append(messages)
-            return _FakeMsg(canned)
-
-    fake = _FakeModel()
-    out = agent_module.repair("broken raw", "JSON parse error", model=fake)
-
-    assert out == canned
-    flat = str(fake.calls[0])
-    assert "broken raw" in flat
-    assert "JSON parse error" in flat
 
 
 def test_import_has_no_side_effects(tmp_path: Path) -> None:
