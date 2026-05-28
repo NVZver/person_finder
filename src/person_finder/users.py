@@ -5,9 +5,9 @@ is strictly after 2000, and returns the remaining names as a `list[str]` of
 `"First Last"` strings, preserving API response order.
 
 This module is HTTP-shape-aware but agent-layer-agnostic: it raises a typed
-`UserFetchError` on any failure so callers (the agent/render layer in later
-epics) can map that to the user-facing `Error("Could not respond")` flow
-without coupling to httpx.
+`UserFetchError` on any failure so callers (the agent/render layer) can map
+that to the user-facing `Error("Could not respond")` flow without coupling
+to httpx.
 
 The public function accepts an optional `httpx.Client` so unit tests can inject
 an `httpx.MockTransport`; production code passes nothing and the function

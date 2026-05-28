@@ -1,7 +1,7 @@
 """Unit tests for `person_finder.config`.
 
-Covers Epic 1 AC: env loader resolves both keys at import time and raises a
-clear error when either is missing or blank.
+Covers: env loader resolves both keys at import time and raises a clear
+error when either is missing or blank.
 """
 
 from __future__ import annotations

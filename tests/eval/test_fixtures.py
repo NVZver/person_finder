@@ -1,21 +1,18 @@
-"""Smoke tests for the Epic 1 eval-tier fixtures.
+"""Smoke tests for the eval-tier fixtures.
 
 These tests prove three things the rest of the eval suite depends on:
 
 1. The captured-key NamedTuple (`real_keys`) exposes whatever was in the host
    env at conftest import time, even after the root `tests/conftest.py`
-   autouse fixture strips both keys (NF2).
+   autouse fixture strips both keys.
 2. The dir-level autouse re-set fixture re-emits the captured values via
    `monkeypatch.setenv` for every eval test, so `os.environ` is correct
-   INSIDE the test body (the main fixture-ordering risk flagged in
-   design.md OQ5).
+   INSIDE the test body.
 3. `judge_configured` and `agent_under_test` each emit skip messages whose
-   wording satisfies NF6 (skip reason names the missing prerequisite). The
-   `agent_under_test` skip path on a missing `person_finder.agent` module
-   is Epic 1's AC5 and is exercised explicitly here.
+   wording names the missing prerequisite.
 
-The tests do NOT call DeepEval, Gemini, Groq, or the agent — that is for
-later epics. Everything runs side-effect-free (NF4).
+The tests do NOT call DeepEval, Gemini, Groq, or the agent. Everything
+runs side-effect-free.
 """
 
 from __future__ import annotations
@@ -30,7 +27,7 @@ from .conftest import PUBLIC_FIGURES
 
 
 def test_public_figures_constant_is_stable() -> None:
-    """F5: roster is a fixed two-name list of well-known public figures."""
+    """Roster is a fixed two-name list of well-known public figures."""
     assert PUBLIC_FIGURES == ["Albert Einstein", "Marie Curie"]
 
 
@@ -74,7 +71,7 @@ def test_autouse_restores_keys_after_root_isolation(
 def test_judge_configured_skips_when_google_key_missing(
     request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """NF6: skip reason for the judge-config path must name `GOOGLE_API_KEY`."""
+    """Skip reason for the judge-config path must name `GOOGLE_API_KEY`."""
     monkeypatch.setattr(
         eval_conftest,
         "_REAL_KEYS",
@@ -90,7 +87,7 @@ def test_judge_configured_skips_when_google_key_missing(
 def test_agent_under_test_skips_on_missing_google_key(
     request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """NF6: first cascade step — missing Google key → skip naming it."""
+    """First cascade step — missing Google key → skip naming it."""
     monkeypatch.setattr(
         eval_conftest,
         "_REAL_KEYS",
@@ -101,5 +98,3 @@ def test_agent_under_test_skips_on_missing_google_key(
         request.getfixturevalue("agent_under_test")
 
     assert "GOOGLE_API_KEY" in str(exc_info.value)
-
-

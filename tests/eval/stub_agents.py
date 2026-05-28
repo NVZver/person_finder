@@ -1,13 +1,13 @@
 """Canned agent-reply payloads for the eval-tier metric tests.
 
-The three deterministic metrics in `tests/eval/metrics.py` (E2-AC1) must
-reject violating payloads with a documented reason substring (E2-AC2 /
-AC4). Verifying that against the live LangChain agent is impossible (we
-cannot coerce the real LLM to emit a specific malformed payload on demand)
-and wasteful (one Groq call per failure mode). The functions below return
-canned strings that mirror the production agent's output contract from
-[main.spec.md:20] — `{ "data": [{ "person": str, "info": str }] }` — and
-let each failure mode be exercised in microseconds.
+The three deterministic metrics in `tests/eval/metrics.py` must reject
+violating payloads with a documented reason substring. Verifying that
+against the live LangChain agent is impossible (we cannot coerce the real
+LLM to emit a specific malformed payload on demand) and wasteful (one
+Groq call per failure mode). The functions below return canned strings
+that mirror the production agent's output contract —
+`{ "data": [{ "person": str, "info": str }] }` — and let each failure
+mode be exercised in microseconds.
 
 Each function returns a `str` (the JSON-shaped agent reply, NOT a parsed
 dict, matching the contract surface the metrics consume).
@@ -25,13 +25,12 @@ from __future__ import annotations
 
 import json
 
-# The fallback string the agent emits when no info is available, per
-# [ARCHITECTURE.md] §LangChain agent layer line 33.
+# The fallback string the agent emits when no info is available.
 _SENTINEL = "<Not found>"
 
 # Name that is intentionally NOT in any plausible `PUBLIC_FIGURES` roster
 # — used by `unknown_person_payload`. The substring "'Foo Bar'" is part
-# of the AC4 contract pinned in `test_metric_failure_modes.py`.
+# of the contract pinned in `test_metric_failure_modes.py`.
 _FOREIGN_NAME = "Foo Bar"
 
 

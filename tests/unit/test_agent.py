@@ -1,8 +1,8 @@
 """Unit tests for the LangChain agent module.
 
-All external calls (Groq HTTP, the agent runtime) are mocked per
-[testing.md](../../specs/standards/testing.md). These tests verify the wiring
-contract only — content quality and output validation are out of scope here.
+All external calls (Groq HTTP, the agent runtime) are mocked. These tests
+verify the wiring contract only — content quality and output validation
+are out of scope here.
 """
 
 from __future__ import annotations
@@ -79,11 +79,9 @@ def test_build_agent_default_model_requires_groq_api_key() -> None:
 def test_repair_invokes_model_and_returns_content_string() -> None:
     """`repair(broken, err, *, model=<fake>)` returns the model's content verbatim.
 
-    Pins the cross-module contract from
-    [validation/spec.md F4](../../specs/modules/validation/spec.md): repair is a
-    `(broken_raw, error_msg) -> repaired_raw` callable. Here the agent module
-    wraps a single LLM call (no ReAct loop — repair is one-shot JSON fixing).
-    The model collaborator is faked; no real Groq call.
+    The agent module wraps a single LLM call (no ReAct loop — repair is
+    one-shot JSON fixing). The model collaborator is faked; no real Groq
+    call.
     """
     canned = '{"data":[{"person":"Ada","info":"<Not found>"}]}'
 
@@ -113,7 +111,7 @@ def test_repair_invokes_model_and_returns_content_string() -> None:
 
 
 def test_import_has_no_side_effects(tmp_path: Path) -> None:
-    """AC5 / NF2: `import person_finder.agent` must not read env, hit disk, or raise.
+    """`import person_finder.agent` must not read env, hit disk, or raise.
 
     Run in a fresh subprocess because by the time this test executes, the
     module is already cached in ``sys.modules`` from earlier tests — only a
@@ -142,7 +140,7 @@ def test_import_has_no_side_effects(tmp_path: Path) -> None:
         f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
     )
     # `uv run` may emit informational lines to stderr (e.g. sync messages);
-    # what AC5 forbids is an exception, so assert no traceback bubbled up.
+    # what we forbid is an exception, so assert no traceback bubbled up.
     assert "Traceback" not in result.stderr, (
         f"import produced a traceback in fresh interpreter.\nstderr:\n{result.stderr}"
     )

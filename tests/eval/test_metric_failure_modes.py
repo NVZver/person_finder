@@ -1,14 +1,15 @@
-"""AC4 verification: deterministic metrics REJECT bad payloads with named reasons.
+"""Deterministic metrics REJECT bad payloads with named reasons.
 
 Each metric in `tests/eval/metrics.py` must emit `success=False` and a `reason`
-containing a documented substring when fed a violating payload. Those substrings
-are the *contract* AC4 promises to downstream readers (skip messages, CI logs).
-They are pinned here as module-level constants — if you change the metric's
-wording, change the constant in the same commit; the test will catch any drift.
+containing a documented substring when fed a violating payload. Those
+substrings are the contract metrics promise to downstream readers (skip
+messages, CI logs). They are pinned here as module-level constants — if
+you change the metric's wording, change the constant in the same commit;
+the test will catch any drift.
 
 Happy-path coverage (three additional tests) proves each metric accepts a
 well-shaped payload and reports `success=True` with `score=1.0` — together
-with the failure-mode tests these establish the bi-directional AC4 contract.
+with the failure-mode tests these establish the bi-directional contract.
 
 No live LLM call. No network. The metrics are pure-Python; the stubs are
 canned strings. Tests run in milliseconds.
@@ -32,7 +33,7 @@ from .stub_agents import (
     valid_payload,
 )
 
-# === AC4 reason substrings (the contract) ============================
+# === Reason substrings (the contract) =================================
 # These are the EXACT substrings each metric promises to embed in its
 # `reason` string when the corresponding violation is detected. If you
 # update a metric's wording, update the constant here in the same commit.
@@ -42,7 +43,7 @@ REASON_UNKNOWN_PERSON = "unknown person 'Foo Bar'"
 REASON_EMPTY_INFO_AT_INDEX = "empty info at index 1"
 
 
-# === Failure-mode tests (E2-AC2 + AC4) ================================
+# === Failure-mode tests ===============================================
 
 
 def test_valid_json_structure_rejects_malformed_json() -> None:
@@ -90,8 +91,8 @@ def test_info_non_empty_or_sentinel_rejects_empty_info() -> None:
     assert REASON_EMPTY_INFO_AT_INDEX in metric.reason
 
 
-# === Happy-path tests (E2-AC1 — metric is independently instantiable
-# and accepts valid input) ============================================
+# === Happy-path tests — metric is independently instantiable and
+# accepts valid input ==================================================
 
 
 def test_valid_json_structure_accepts_valid_payload() -> None:

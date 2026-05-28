@@ -1,12 +1,11 @@
-"""Unit tests for the render orchestrator (Epic 5).
+"""Unit tests for the render orchestrator.
 
 All collaborators (`users.fetch_user_names`, `agent.enrich_names`,
-`agent.repair`, `validation.validate_output`) are mocked per
-[testing.md](../../specs/standards/testing.md). No network, no LLM, no
-randomuser.me. These tests verify only the wiring contract: the orchestrator
-calls the right functions in the right order, surfaces the two named errors
-with a user-facing stderr message + non-zero exit, and prints validated JSON
-on the success path.
+`agent.repair`, `validation.validate_output`) are mocked. No network,
+no LLM, no randomuser.me. These tests verify only the wiring contract:
+the orchestrator calls the right functions in the right order, surfaces
+the two named errors with a user-facing stderr message + non-zero exit,
+and prints validated JSON on the success path.
 """
 
 from __future__ import annotations
@@ -56,7 +55,7 @@ def test_main_success_prints_json_and_exits_zero(
 
 
 # ---------------------------------------------------------------------------
-# AC2 — validation.Error path: stderr message, non-zero exit, no traceback
+# validation.Error path: stderr message, non-zero exit, no traceback
 # ---------------------------------------------------------------------------
 
 
@@ -94,7 +93,7 @@ def test_main_handles_validation_error_with_user_message_and_nonzero_exit(
 
 
 # ---------------------------------------------------------------------------
-# AC3 — users.UserFetchError path: same user-facing surface
+# users.UserFetchError path: same user-facing surface
 # ---------------------------------------------------------------------------
 
 
@@ -129,18 +128,18 @@ def test_main_handles_user_fetch_error_with_same_user_message(
 
 
 # ---------------------------------------------------------------------------
-# AC4 — validate_output is invoked with a real callable repair_fn (NOT None)
+# validate_output is invoked with a real callable repair_fn (NOT None)
 # ---------------------------------------------------------------------------
 
 
 def test_main_passes_callable_repair_fn_to_validate_output(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Pins validation/spec.md F4: render wires a real repair callable.
+    """Render wires a real repair callable into validate_output.
 
     Captures the `repair_fn` kwarg passed to `validate_output` and asserts
     it is callable — i.e. not `None` (which would short-circuit the entire
-    Epic 4 repair retry loop).
+    repair retry loop).
     """
     from person_finder import render
 
@@ -166,7 +165,7 @@ def test_main_passes_callable_repair_fn_to_validate_output(
     assert "repair_fn" in captured, "validate_output must be called"
     assert callable(captured["repair_fn"]), (
         "repair_fn argument must be a real callable, not None — "
-        "Epic 4's whole point is the repair retry loop"
+        "the whole point is the repair retry loop"
     )
 
 
@@ -201,7 +200,7 @@ def test_main_with_empty_names_prints_empty_data_payload(
 
 
 # ---------------------------------------------------------------------------
-# NF — side-effect-free import (mirror agent/validation pattern)
+# Side-effect-free import (mirror agent/validation pattern)
 # ---------------------------------------------------------------------------
 
 

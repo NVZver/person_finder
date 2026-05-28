@@ -1,24 +1,21 @@
 """Validation + repair-retry loop for the LangChain agent's JSON output.
 
-Runs AFTER the ReAct loop (per ARCHITECTURE.md §Layers/2): parses the LLM's
-raw final-message content, asserts the cross-module schema
-(``{"data": [{"person": str, "info": str}]}``), and on failure asks the
-caller's ``repair_fn`` to fix it. Budget: 3 repair attempts. On exhaustion,
-raises ``Error("Could not respond")`` per [main.spec.md §Cross-Module
-Contracts](../../specs/main.spec.md).
+Runs AFTER the ReAct loop: parses the LLM's raw final-message content,
+asserts the schema (``{"data": [{"person": str, "info": str}]}``), and on
+failure asks the caller's ``repair_fn`` to fix it. Budget: 3 repair
+attempts. On exhaustion, raises ``Error("Could not respond")``.
 
-The module is code-only and intentionally LLM-free: the caller (Epic 5
-``render`` layer) wires ``repair_fn`` as a closure over the agent. This keeps
-unit tests fast (no network) and reuses ``validate_output`` for any future
-repair source.
+The module is code-only and intentionally LLM-free: the caller (the
+``render`` layer) wires ``repair_fn`` as a closure over the agent. This
+keeps unit tests fast (no network) and reuses ``validate_output`` for any
+future repair source.
 
-Naming note — ``Error``: the literal name is dictated by main.spec.md:22's
-``Error("Could not respond")`` failure-signal contract. The class is scoped
-to this module only (``person_finder.validation.Error``); Python has no
-builtin ``Error`` symbol, so no actual builtin is shadowed, but a careless
-``from person_finder.validation import *`` would still pollute the importing
-namespace. Callers should ``from person_finder.validation import Error``
-explicitly.
+Naming note — ``Error``: the class is scoped to this module only
+(``person_finder.validation.Error``); Python has no builtin ``Error``
+symbol, so no actual builtin is shadowed, but a careless
+``from person_finder.validation import *`` would still pollute the
+importing namespace. Callers should ``from person_finder.validation
+import Error`` explicitly.
 """
 
 from __future__ import annotations
@@ -32,11 +29,11 @@ MAX_REPAIRS: Final[int] = 3
 
 
 class Error(Exception):
-    """Cross-module failure signal per main.spec.md:22.
+    """Cross-module failure signal.
 
     Raised by :func:`validate_output` after the repair budget is exhausted.
-    Carries the single argument ``"Could not respond"`` per the contract.
-    The underlying precise diagnostic is preserved on ``__cause__``.
+    Carries the single argument ``"Could not respond"``. The underlying
+    precise diagnostic is preserved on ``__cause__``.
     """
 
 

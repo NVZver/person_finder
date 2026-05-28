@@ -3,9 +3,9 @@
 No mocks. Hits randomuser.me + Groq for real. Subprocess invocation so
 the test exercises the actual CLI surface: stdin/stdout/stderr, exit
 code, and module-discovery path. Skipped cleanly when `GROQ_API_KEY` is
-absent — empty-key dev paths stay green per Epic 5 AC5.
+absent — empty-key dev paths stay green.
 
-Asserts the contract from [main.spec.md §Cross-Module Contracts](../../specs/main.spec.md):
+Asserts the cross-module CLI contract:
 - stdout is valid JSON, top-level dict, contains `data` key
 - `data` is a list of `{"person": str, "info": str}` items
 - exit code 0

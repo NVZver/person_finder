@@ -28,7 +28,7 @@ class RealKeys(NamedTuple):
 
 
 def _capture_real_keys() -> RealKeys:
-    """Read the host env once. Called at conftest import time (NF2).
+    """Read the host env once. Called at conftest import time.
 
     Must run BEFORE the root `tests/conftest.py` autouse `_isolate_env`
     fixture deletes the keys. Pytest imports `conftest.py` files during

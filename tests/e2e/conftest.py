@@ -6,8 +6,8 @@ no DeepEval). The root `tests/conftest.py` strips both keys for every
 test; this autouse fixture re-emits whatever the host shell had at
 conftest import time so the e2e subprocess can reach Groq.
 
-Tests skip with a precise reason when `GROQ_API_KEY` is absent (per the
-epic spec's AC5 skip-cleanly requirement).
+Tests skip with a precise reason when `GROQ_API_KEY` is absent so
+empty-key dev paths stay green.
 """
 
 from __future__ import annotations

@@ -1,7 +1,7 @@
 """Unit tests for `person_finder.users`.
 
-Covers Epic 2 AC: fetch 20 randomuser records, drop year-of-birth > 2000,
-return `list[str]` of `"First Last"` in API response order.
+Covers: fetch 20 randomuser records, drop year-of-birth > 2000, return
+`list[str]` of `"First Last"` in API response order.
 
 External HTTP is mocked via `httpx.MockTransport` injected through the
 function's optional `client` parameter — no real network calls.

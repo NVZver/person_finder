@@ -1,7 +1,6 @@
 """Three deterministic `deepeval.metrics.BaseMetric` subclasses.
 
-Each metric encodes one of the three quality criteria fixed by
-[ARCHITECTURE.md] §LLM evaluation lines 92-98:
+Each metric encodes one of the three quality criteria for the agent:
 
   - `ValidJsonStructure`     — output parses as JSON, has a `data` list of
                                 `{person:str, info:str}` items.
@@ -18,13 +17,13 @@ All three are pure-Python, deterministic, and side-effect-free:
     `measure` so DeepEval's async runner can call either entry point.
   - On failure, `reason` names BOTH the violated criterion AND the
     offending entry (e.g. `"data[2].info is not a str — got int"`),
-    so AC4 traceability survives without a debugger.
+    so traceability survives without a debugger.
 
-The metrics consume `LLMTestCase.actual_output` (a `str`, per the agent
-output contract at [main.spec.md:20]). DeepEval requires `LLMTestCase.input`
-to be a string; the *real* input list — needed by `PersonNamesMatchInput`
-— is therefore passed to the metric's `__init__`, not extracted from the
-test case. This mirrors how every first-party DeepEval metric receives
+The metrics consume `LLMTestCase.actual_output` (a `str`, matching the
+agent output contract). DeepEval requires `LLMTestCase.input` to be a
+string; the *real* input list — needed by `PersonNamesMatchInput` — is
+therefore passed to the metric's `__init__`, not extracted from the test
+case. This mirrors how every first-party DeepEval metric receives
 external configuration (e.g. `evaluation_model`).
 """
 
@@ -36,9 +35,8 @@ from typing import Any
 from deepeval.metrics import BaseMetric
 from deepeval.test_case import LLMTestCase
 
-# The agent's fallback string when no info is available
-# ([ARCHITECTURE.md] §LangChain agent layer line 33). Pinned here as a
-# module constant so `InfoNonEmptyOrSentinel` and the stubs in
+# The agent's fallback string when no info is available. Pinned here as
+# a module constant so `InfoNonEmptyOrSentinel` and the stubs in
 # `stub_agents.py` cannot drift.
 SENTINEL_NOT_FOUND = "<Not found>"
 
@@ -52,8 +50,8 @@ def _parse_payload(actual_output: str) -> tuple[Any, str | None]:
     the specific criterion and offending location.
 
     Shared across all three metrics so the parse error path is one source
-    of truth — the reason wording is consistent and AC4 substrings (e.g.
-    `"JSON parse error"`) cannot drift between metrics.
+    of truth — the reason wording is consistent and the contract
+    substrings (e.g. `"JSON parse error"`) cannot drift between metrics.
     """
     try:
         parsed = json.loads(actual_output)
@@ -191,8 +189,7 @@ class InfoNonEmptyOrSentinel(BaseMetric):
     """Deterministic check: every `data[].info` is non-empty OR the sentinel.
 
     Whitespace-only info counts as empty: `len(info.strip()) > 0` is the
-    threshold. The sentinel `"<Not found>"` is an explicit pass per
-    [ARCHITECTURE.md] §LangChain agent layer line 33.
+    threshold. The sentinel `"<Not found>"` is an explicit pass.
     """
 
     threshold: float = 1.0

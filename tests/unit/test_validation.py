@@ -123,14 +123,14 @@ def test_error_class_is_exception_subclass() -> None:
 
 
 # ---------------------------------------------------------------------------
-# AC5 — precise error_msg names the violation for each failure mode
+# Precise error_msg names the violation for each failure mode
 #
-# Tests the F5 public contract — "what does repair_fn receive in its
+# Tests the public contract — "what does repair_fn receive in its
 # error_msg arg" — by supplying a repair_fn that captures its second arg.
 # Avoids coupling to the private _ValidationFailure type that chains to
 # Error.__cause__. The same precise diagnostic flows through both paths
 # (repair_fn arg AND __cause__ message); we test the public-callable
-# path because that's what F5 actually contracts.
+# path because that's what callers actually consume.
 # ---------------------------------------------------------------------------
 
 
@@ -209,7 +209,7 @@ def test_repair_fn_returning_non_str_is_a_validation_failure() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Import hygiene — mirrors AC5 pattern from test_agent.py
+# Import hygiene
 # ---------------------------------------------------------------------------
 
 

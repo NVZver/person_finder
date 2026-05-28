@@ -75,15 +75,14 @@ fences. Do not invent new people; preserve the original `person` values.
 def repair(broken_raw: str, error_msg: str, *, model: Any | None = None) -> str:
     """One-shot LLM repair pass over a validation-failed JSON candidate.
 
-    Wraps the cross-module repair callable contract from
-    [validation/spec.md F4](../../specs/modules/validation/spec.md):
-    ``(broken_raw, error_msg) -> repaired_raw``. The fix is a single model
-    call (no ReAct loop / no tool calls) because repair is targeted JSON
-    surgery, not enrichment.
+    Implements the ``(broken_raw, error_msg) -> repaired_raw`` callable
+    contract consumed by :func:`person_finder.validation.validate_output`.
+    The fix is a single model call (no ReAct loop / no tool calls) because
+    repair is targeted JSON surgery, not enrichment.
 
     Constructed lazily — the default model is built per call via
     :func:`_default_model` so ``import person_finder.agent`` stays
-    side-effect-free (NF2).
+    side-effect-free.
     """
     llm = model if model is not None else _default_model()
     user_msg = (
