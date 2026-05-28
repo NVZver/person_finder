@@ -120,18 +120,17 @@ def agent_under_test(real_keys: RealKeys) -> Callable[..., Any]:
       3. No `GROQ_API_KEY` → skip naming it (agent can't reach Groq).
       4. Otherwise → return the agent's public callable.
 
-    The exact public name (`run_agent`, `find_people`, …) is the parallel
-    Epic 3 PR's decision (design.md OQ1). The lazy import here keeps
-    Epic 1 landable today and adapts with a single-line edit later.
+    Epic 3 shipped the callable as `enrich_names`
+    (`src/person_finder/agent.py`).
     """
     if not real_keys.google_api_key:
         pytest.skip("GOOGLE_API_KEY unset — DeepEval judge cannot be configured")
     try:
-        from person_finder.agent import run_agent
+        from person_finder.agent import enrich_names
     except ImportError as exc:
         pytest.skip(
             f"person_finder.agent not importable yet — Epic 3 pending ({exc})"
         )
     if not real_keys.groq_api_key:
         pytest.skip("GROQ_API_KEY unset — agent cannot reach Groq")
-    return run_agent
+    return enrich_names

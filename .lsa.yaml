@@ -14,6 +14,21 @@ modules:
       - /tests/conftest.py
       - /tests/unit/__init__.py
       - /tests/unit/test_config.py
+  users:
+    spec: /specs/modules/users/spec.md
+    artifact_paths:
+      - /src/person_finder/users.py
+      - /tests/unit/test_users.py
+  agent:
+    spec: /specs/modules/agent/spec.md
+    artifact_paths:
+      - /src/person_finder/agent.py
+      - /tests/unit/test_agent.py
+  validation:
+    spec: /specs/modules/validation/spec.md
+    artifact_paths:
+      - /src/person_finder/validation.py
+      - /tests/unit/test_validation.py
   eval:
     spec: /specs/modules/eval/spec.md
     artifact_paths:

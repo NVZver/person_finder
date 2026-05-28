@@ -14,8 +14,8 @@ Each metric encodes one of the three quality criteria fixed by
 All three are pure-Python, deterministic, and side-effect-free:
 
   - No network I/O. No env reads. No file writes.
-  - `async_mode = False` — `a_measure` is intentionally not implemented;
-    DeepEval will not invoke it.
+  - `async_mode = False`, and `a_measure` delegates synchronously to
+    `measure` so DeepEval's async runner can call either entry point.
   - On failure, `reason` names BOTH the violated criterion AND the
     offending entry (e.g. `"data[2].info is not a str — got int"`),
     so AC4 traceability survives without a debugger.
@@ -127,6 +127,9 @@ class ValidJsonStructure(BaseMetric):
         )
         return self.score
 
+    async def a_measure(self, test_case: LLMTestCase, *args: Any, **kwargs: Any) -> float:
+        return self.measure(test_case)
+
     def is_successful(self) -> bool:
         return bool(self.success)
 
@@ -150,6 +153,7 @@ class PersonNamesMatchInput(BaseMetric):
 
     def __init__(self, input_names: list[str], threshold: float = 1.0) -> None:
         self.threshold = threshold
+        self.input_names = list(input_names)
         self._allowed = set(input_names)
 
     def measure(self, test_case: LLMTestCase) -> float:
@@ -171,6 +175,9 @@ class PersonNamesMatchInput(BaseMetric):
             f"all {len(data)} persons are members of the input list",
         )
         return self.score
+
+    async def a_measure(self, test_case: LLMTestCase, *args: Any, **kwargs: Any) -> float:
+        return self.measure(test_case)
 
     def is_successful(self) -> bool:
         return bool(self.success)
@@ -213,6 +220,9 @@ class InfoNonEmptyOrSentinel(BaseMetric):
             f"all {len(data)} items have non-empty info or the sentinel",
         )
         return self.score
+
+    async def a_measure(self, test_case: LLMTestCase, *args: Any, **kwargs: Any) -> float:
+        return self.measure(test_case)
 
     def is_successful(self) -> bool:
         return bool(self.success)

@@ -103,23 +103,3 @@ def test_agent_under_test_skips_on_missing_google_key(
     assert "GOOGLE_API_KEY" in str(exc_info.value)
 
 
-def test_agent_under_test_skips_on_missing_agent_module(
-    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """E1-AC5 + NF6: agent module absent → skip naming `person_finder.agent`.
-
-    The current `feature/deepeval-llm-judge-suite` branch has no
-    `person_finder.agent` module (Epic 3 of the project roadmap is not yet
-    merged), so the import inside `agent_under_test` raises and the
-    fixture must convert that into a skip.
-    """
-    monkeypatch.setattr(
-        eval_conftest,
-        "_REAL_KEYS",
-        RealKeys(groq_api_key="groq-present", google_api_key="google-present"),
-    )
-
-    with pytest.raises(pytest.skip.Exception) as exc_info:
-        request.getfixturevalue("agent_under_test")
-
-    assert "person_finder.agent" in str(exc_info.value)
