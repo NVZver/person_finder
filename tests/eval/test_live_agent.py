@@ -15,9 +15,8 @@ from deepeval.test_case import LLMTestCase
 
 from .conftest import PUBLIC_FIGURES
 from .metrics import (
-    InfoHasSourcePrefix,
-    InfoNonEmptyOrSentinel,
-    NoSentinelInfo,
+    InfoNonEmptyOrNull,
+    NoNullInfo,
     PersonNamesMatchInput,
     ValidJsonStructure,
 )
@@ -39,8 +38,7 @@ def test_live_agent_passes_all_metrics(agent_payload: str) -> None:
         [
             ValidJsonStructure(),
             PersonNamesMatchInput(input_names=PUBLIC_FIGURES),
-            InfoNonEmptyOrSentinel(),
-            NoSentinelInfo(),
-            InfoHasSourcePrefix(),
+            InfoNonEmptyOrNull(),
+            NoNullInfo(),
         ],
     )

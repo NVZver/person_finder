@@ -38,4 +38,7 @@ def test_python_module_run_returns_validated_json() -> None:
     assert isinstance(payload["data"], list)
     for item in payload["data"]:
         assert isinstance(item["person"], str)
-        assert isinstance(item["info"], str)
+        assert item["info"] is None or isinstance(item["info"], str)
+        assert item["source"] in (None, "wiki", "llm")
+        # Paired nullability: both null, or both populated.
+        assert (item["info"] is None) == (item["source"] is None)

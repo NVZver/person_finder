@@ -1,77 +1,72 @@
-"""Identify each name via a Groq LLM with a `wikipedia_search` tool.
+"""Identify each name with Wikipedia + LLM in a deterministic per-name loop.
 
-The agent follows a three-step fallback ladder per name:
+For each input name we control the source attribution programmatically:
 
-  1. Call `wikipedia_search` (primary, grounded source).
-  2. If Wikipedia returns nothing relevant, fall back to the model's own
-     training knowledge.
-  3. If neither has a reliable identification, emit the `<Not found>`
-     sentinel.
+  1. Try `wikipedia.summary(name)`. On hit → ask the LLM to compress to
+     1-2 sentences. Source = ``"wiki"``.
+  2. On miss → ask the LLM to identify the person from training knowledge.
+     If the LLM responds with the literal ``UNKNOWN`` sentinel → both
+     ``info`` and ``source`` are ``null``. Else → ``source = "llm"`` and
+     ``info`` is the LLM's reply.
 
-This prioritises grounded answers while preserving recall on figures whose
-Wikipedia entries are missing, ambiguous, or named differently than the
-input.
+The LLM never decides the ``source`` field or whether ``info`` is ``null`` —
+those are derived from which retrieval step succeeded. This eliminates the
+entire class of "LLM emits the string `'null'` instead of JSON `null`" and
+"LLM forgets the source tag" failure modes that a structured-output contract
+exposes.
 
-If the agent's final reply fails to parse as JSON, the parse error is sent
-back with a "fix it" instruction, up to `MAX_ATTEMPTS` times. The retry loop
-is a safety net for the JSON envelope only — the ladder above is what makes
-the content reliable.
+Each LLM invocation is a one-shot text-in / text-out call: no tool use, no
+JSON envelope to parse, no repair-retry loop. Cost trade-off vs the prior
+single batched agent invocation: more API round-trips per run, but each is
+small and the output is reliably parseable.
 """
 
 from __future__ import annotations
 
-import json
+import warnings
 from typing import Any
 
-import wikipedia as _wikipedia
-from langchain.agents import create_agent
-from langchain_community.utilities import WikipediaAPIWrapper
-from langchain_core.tools import tool
+import wikipedia
+from bs4 import GuessedAtParserWarning
+from langchain_core.messages import HumanMessage
 from langchain_groq import ChatGroq
 
 from person_finder.config import groq_api_key
 
-# Wikipedia's robot policy (https://w.wiki/4wJS, Phabricator T400119) rejects
-# requests without a descriptive User-Agent — the python-`wikipedia` library's
-# default UA gets a 403. Setting one here at import time fixes every call
-# `WikipediaAPIWrapper` issues downstream.
-_wikipedia.set_user_agent(
+# Wikipedia's robot policy rejects requests without a descriptive User-Agent;
+# the python-`wikipedia` library's default UA gets a 403.
+wikipedia.set_user_agent(
     "person_finder/0.1 (NN GenAI assessment; +https://randomuser.me)"
 )
 
+# The `wikipedia` library calls `BeautifulSoup(html)` without an explicit
+# parser, which prints `GuessedAtParserWarning` on every search. Upstream
+# noise (goldsmith/Wikipedia#207) — silence it so CLI stderr stays clean
+# for actual error messages.
+warnings.filterwarnings("ignore", category=GuessedAtParserWarning)
 
-SYSTEM_PROMPT = """Identify people. Wikipedia first, training knowledge as fallback.
+# Sentinel the LLM must emit when it cannot identify the person from training
+# knowledge. Comparison is permissive (case- and punctuation-insensitive) to
+# survive minor model serialization noise.
+UNKNOWN_SENTINEL = "UNKNOWN"
 
-For each input name:
-1. Call `wikipedia_search` with the name.
-2. If the article clearly describes a real public figure of that name, return
-   `[source: wiki] ` + a 1-2 sentence summary drawn from the article.
-3. Else, if you confidently know the person, return `[source: llm] ` + a 1-2
-   sentence summary from training knowledge.
-4. Only if Wikipedia AND training knowledge both fail, use `<Not found>`.
-
-Return ONE JSON object: {"data": [{"person": "First Last", "info": "..."}]}
-
-- `person` matches the input verbatim.
-- `info` is EXACTLY one of: `<Not found>`, `[source: wiki] ...`, `[source: llm] ...`.
-- Don't embellish beyond the source. On name clashes, pick the most prominent.
-- Output ONLY the JSON. No prose, no markdown fences.
-"""
-
-MAX_ATTEMPTS = 3
-
-_WIKI = WikipediaAPIWrapper(top_k_results=1, doc_content_chars_max=600)
+_WIKI_SENTENCES = 3
+_SUMMARY_CHAR_CAP = 600
 
 
-@tool
-def wikipedia_search(query: str) -> str:
-    """Look up a person on Wikipedia and return the top article's summary.
+SUMMARIZE_PROMPT = """Summarize the following Wikipedia content about a person in 1-2 sentences.
+Focus on who they are and what they're best known for. Return ONLY the
+summary text — no preamble, no quotes, no JSON.
 
-    Use this for every input name to ground identification in factual content.
-    Returns the article title + summary on a hit, or an empty/no-match message
-    when nothing relevant is found.
-    """
-    return _WIKI.run(query)
+{content}"""
+
+IDENTIFY_PROMPT = """Identify the person named "{name}" in 1-2 sentences from your training
+knowledge. Focus on who they are and what they're best known for.
+
+If you cannot confidently identify a specific real person with this name,
+respond with exactly the single word UNKNOWN (no punctuation, no other text).
+
+Return ONLY the summary OR the word UNKNOWN."""
 
 
 def _model() -> ChatGroq:
@@ -79,48 +74,86 @@ def _model() -> ChatGroq:
         model="llama-3.1-8b-instant",
         api_key=groq_api_key(),
         temperature=0,
+        # Surface 429s immediately so render.py's APIStatusError handler can
+        # print Groq's actionable "try again in Ns" message. The SDK default
+        # of 2 retries with backoff hangs silently for ~30s before raising.
+        max_retries=0,
     )
+
+
+def _fetch_wiki(name: str) -> str | None:
+    """Return a Wikipedia summary for `name`, or `None` on any miss/error.
+
+    `DisambiguationError` and `PageError` are the documented "no clean
+    match" paths; we treat them as "no article available" so the LLM
+    fallback takes over. Network/HTTP failures also return `None` — they
+    shouldn't fail the whole batch.
+    """
+    try:
+        summary = wikipedia.summary(
+            name, sentences=_WIKI_SENTENCES, auto_suggest=True
+        )
+    except wikipedia.exceptions.WikipediaException:
+        return None
+    except Exception:
+        # Network/SSL errors etc. — same "no article" outcome.
+        return None
+
+    summary = summary.strip()
+    if not summary:
+        return None
+    return summary[:_SUMMARY_CHAR_CAP]
+
+
+def _summarize_article(llm: Any, content: str) -> str:
+    reply = llm.invoke(
+        [HumanMessage(content=SUMMARIZE_PROMPT.format(content=content))]
+    )
+    return reply.content.strip()
+
+
+def _identify_from_memory(llm: Any, name: str) -> str | None:
+    """Ask the LLM to identify `name` from training knowledge, or `None`."""
+    reply = llm.invoke(
+        [HumanMessage(content=IDENTIFY_PROMPT.format(name=name))]
+    )
+    text = reply.content.strip()
+    if _is_unknown(text):
+        return None
+    return text
+
+
+def _is_unknown(reply: str) -> bool:
+    """Permissive match for the UNKNOWN sentinel.
+
+    Tolerates trailing punctuation and case variation so a model that
+    emits ``"unknown."`` or ``"Unknown"`` still routes to the null pair
+    instead of being treated as a positive identification.
+    """
+    normalized = reply.strip().rstrip(".").strip().upper()
+    return normalized == "" or normalized == UNKNOWN_SENTINEL
 
 
 def enrich_names(names: list[str], *, model: Any | None = None) -> dict[str, Any]:
-    """Ask the LLM to identify each name; re-prompt on JSON parse failure.
+    """Identify each name; return ``{"data": [{person, info, source}]}``.
 
-    Total LLM invocations are capped at `MAX_ATTEMPTS` (1 initial + up to
-    `MAX_ATTEMPTS - 1` repair calls). On final failure raises the last
-    `json.JSONDecodeError`.
+    Per-name: wiki summary → if hit, LLM compresses to 1-2 sentences with
+    ``source="wiki"``; if miss, LLM identifies from memory and we set
+    ``source="llm"`` or null based on whether it emitted the UNKNOWN
+    sentinel. Paired nullability is guaranteed by construction.
     """
-    agent = create_agent(
-        model=model if model is not None else _model(),
-        tools=[wikipedia_search],
-        system_prompt=SYSTEM_PROMPT,
-    )
-    messages: list[Any] = [
-        {
-            "role": "user",
-            "content": "Identify these people:\n" + "\n".join(f"- {n}" for n in names),
-        }
-    ]
-    last_error: json.JSONDecodeError | None = None
-    for _ in range(MAX_ATTEMPTS):
-        result = agent.invoke({"messages": messages})
-        raw = result["messages"][-1].content
-        try:
-            return json.loads(raw)
-        except json.JSONDecodeError as exc:
-            last_error = exc
-            # Repair retry: drop the tool transcript — only the syntax needs
-            # fixing, and replaying every wikipedia_search result is wasted
-            # tokens. The system prompt is still applied by the agent.
-            messages = [
-                {
-                    "role": "user",
-                    "content": (
-                        f"The previous output was not valid JSON ({exc}). "
-                        "Return ONLY a valid JSON object matching the schema. "
-                        "Do not call tools.\n\n"
-                        f"Previous output:\n{raw}"
-                    ),
-                }
-            ]
-    assert last_error is not None
-    raise last_error
+    llm = model if model is not None else _model()
+    rows: list[dict[str, Any]] = []
+    for name in names:
+        article = _fetch_wiki(name)
+        if article is not None:
+            info = _summarize_article(llm, article)
+            rows.append({"person": name, "info": info, "source": "wiki"})
+            continue
+
+        identification = _identify_from_memory(llm, name)
+        if identification is None:
+            rows.append({"person": name, "info": None, "source": None})
+        else:
+            rows.append({"person": name, "info": identification, "source": "llm"})
+    return {"data": rows}

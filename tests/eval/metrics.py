@@ -1,22 +1,28 @@
-"""Three deterministic `deepeval.metrics.BaseMetric` subclasses.
+"""Four deterministic `deepeval.metrics.BaseMetric` subclasses.
 
-Each metric encodes one of the three quality criteria for the agent:
+Each metric encodes one of the four quality criteria for the agent:
 
-  - `ValidJsonStructure`     — output parses as JSON, has a `data` list of
-                                `{person:str, info:str}` items.
-  - `PersonNamesMatchInput`  — every `data[].person` is in the input list
-                                (constructor-injected, since DeepEval
-                                4.0.4 rejects non-string `LLMTestCase.input`).
-  - `InfoNonEmptyOrSentinel` — for each item, `info == "<Not found>"`
-                                OR `len(info.strip()) > 0`.
+  - `ValidJsonStructure`   — output parses as JSON, has a `data` list of
+                              `{person:str, info:str|None, source:enum|None}`
+                              items with paired nullability between
+                              `info` and `source`. The `source` enum is
+                              `"wiki" | "llm" | null`.
+  - `PersonNamesMatchInput` — every `data[].person` is in the input list
+                              (constructor-injected, since DeepEval
+                              4.0.4 rejects non-string `LLMTestCase.input`).
+  - `InfoNonEmptyOrNull`   — for each item, `info is None` OR
+                              `len(info.strip()) > 0` (no empty / whitespace
+                              strings paired with a non-null source).
+  - `NoNullInfo`           — for each item, `info is not None` (regression
+                              guard for the famous-roster eval).
 
-All three are pure-Python, deterministic, and side-effect-free:
+All four are pure-Python, deterministic, and side-effect-free:
 
   - No network I/O. No env reads. No file writes.
   - `async_mode = False`, and `a_measure` delegates synchronously to
     `measure` so DeepEval's async runner can call either entry point.
   - On failure, `reason` names BOTH the violated criterion AND the
-    offending entry (e.g. `"data[2].info is not a str — got int"`),
+    offending entry (e.g. `"data[2].info is not a str or null — got int"`),
     so traceability survives without a debugger.
 
 The metrics consume `LLMTestCase.actual_output` (a `str`, matching the
@@ -35,29 +41,30 @@ from typing import Any
 from deepeval.metrics import BaseMetric
 from deepeval.test_case import LLMTestCase
 
-# The agent's fallback string when no info is available. Pinned here as
-# a module constant so `InfoNonEmptyOrSentinel` and the stubs in
-# `stub_agents.py` cannot drift.
-SENTINEL_NOT_FOUND = "<Not found>"
-
-# The two valid source-prefix forms the agent must emit on non-sentinel
-# `info`. Trailing space is part of the contract — it separates the prefix
-# from the summary text.
-PREFIX_WIKI = "[source: wiki] "
-PREFIX_LLM = "[source: llm] "
+# Allowed values for the `source` field. `None` means "no source — the
+# person was not identified by either Wikipedia or training knowledge".
+ALLOWED_SOURCES: frozenset[str] = frozenset({"wiki", "llm"})
 
 
 def _parse_payload(actual_output: str) -> tuple[Any, str | None]:
     """Parse the agent's reply and validate its top-level + per-item shape.
 
     Returns `(parsed_data_list, None)` on success, where `parsed_data_list`
-    is the contents of the `data` key (a `list[dict[str, str]]`). Returns
-    `(None, reason)` on the first shape violation, with `reason` naming
-    the specific criterion and offending location.
+    is the contents of the `data` key. Returns `(None, reason)` on the
+    first shape violation, with `reason` naming the specific criterion
+    and offending location.
 
-    Shared across all three metrics so the parse error path is one source
-    of truth — the reason wording is consistent and the contract
-    substrings (e.g. `"JSON parse error"`) cannot drift between metrics.
+    Shape contract:
+      - top-level: dict with a `data` key holding a list.
+      - per item: dict with keys `person`, `info`, `source`.
+      - `person`: non-empty str.
+      - `info`: str or None.
+      - `source`: one of `"wiki"`, `"llm"`, or None.
+      - paired nullability: `info is None` iff `source is None`.
+
+    Shared across all metrics so the parse error path is one source of
+    truth — the reason wording is consistent and the contract substrings
+    (e.g. `"JSON parse error"`) cannot drift between metrics.
     """
     try:
         parsed = json.loads(actual_output)
@@ -79,14 +86,37 @@ def _parse_payload(actual_output: str) -> tuple[Any, str | None]:
     for i, item in enumerate(data):
         if not isinstance(item, dict):
             return None, f"data[{i}] is not an object — got {type(item).__name__}"
-        for key in ("person", "info"):
+
+        for key in ("person", "info", "source"):
             if key not in item:
                 return None, f'data[{i}] missing "{key}" key'
-            if not isinstance(item[key], str):
-                return None, (
-                    f"data[{i}].{key} is not a str — got "
-                    f"{type(item[key]).__name__}"
-                )
+
+        person = item["person"]
+        if not isinstance(person, str):
+            return None, (
+                f"data[{i}].person is not a str — got {type(person).__name__}"
+            )
+
+        info = item["info"]
+        if info is not None and not isinstance(info, str):
+            return None, (
+                f"data[{i}].info is not a str or null — got {type(info).__name__}"
+            )
+
+        source = item["source"]
+        if source is not None and source not in ALLOWED_SOURCES:
+            return None, (
+                f"data[{i}].source not in allowed enum — got {source!r}; "
+                f"expected null or one of {sorted(ALLOWED_SOURCES)}"
+            )
+
+        if (info is None) != (source is None):
+            return None, (
+                f"data[{i}] mismatched pair: info is "
+                f"{'null' if info is None else 'non-null'} but source is "
+                f"{'null' if source is None else 'non-null'} — both must "
+                f"be null, or both populated"
+            )
 
     return data, None
 
@@ -109,9 +139,10 @@ class ValidJsonStructure(BaseMetric):
     """Deterministic check: `actual_output` parses as the expected JSON shape.
 
     Success when:
-      - `json.loads(actual_output)` is a dict.
-      - It has a `"data"` key whose value is a list.
-      - Every list item is a dict with `person: str` and `info: str`.
+      - `json.loads(actual_output)` is a dict with a `"data"` list.
+      - Every list item is a dict with `person:str`, `info:str|None`,
+        `source: "wiki" | "llm" | None`.
+      - `info` and `source` are paired-null: both populated, or both null.
     """
 
     threshold: float = 1.0
@@ -127,7 +158,7 @@ class ValidJsonStructure(BaseMetric):
             return self.score
         _set_success(
             self,
-            f"valid structure: {len(data)} items, all with person:str and info:str",
+            f"valid structure: {len(data)} items with correct types and paired (info,source)",
         )
         return self.score
 
@@ -191,11 +222,12 @@ class PersonNamesMatchInput(BaseMetric):
         return "Person Names Match Input"
 
 
-class InfoNonEmptyOrSentinel(BaseMetric):
-    """Deterministic check: every `data[].info` is non-empty OR the sentinel.
+class InfoNonEmptyOrNull(BaseMetric):
+    """Deterministic check: every `data[].info` is `None` OR a non-empty string.
 
-    Whitespace-only info counts as empty: `len(info.strip()) > 0` is the
-    threshold. The sentinel `"<Not found>"` is an explicit pass.
+    Whitespace-only `info` counts as empty: `len(info.strip()) > 0` is
+    the threshold. `info is None` is an explicit pass — that is the
+    documented "not found" signal, paired with `source is None`.
     """
 
     threshold: float = 1.0
@@ -212,7 +244,7 @@ class InfoNonEmptyOrSentinel(BaseMetric):
 
         for i, item in enumerate(data):
             info = item["info"]
-            if info == SENTINEL_NOT_FOUND:
+            if info is None:
                 continue
             if len(info.strip()) == 0:
                 _set_failure(self, f"empty info at index {i}")
@@ -220,7 +252,7 @@ class InfoNonEmptyOrSentinel(BaseMetric):
 
         _set_success(
             self,
-            f"all {len(data)} items have non-empty info or the sentinel",
+            f"all {len(data)} items have non-empty info or null",
         )
         return self.score
 
@@ -232,76 +264,18 @@ class InfoNonEmptyOrSentinel(BaseMetric):
 
     @property
     def __name__(self) -> str:
-        return "Info Non-Empty Or Sentinel"
+        return "Info Non-Empty Or Null"
 
 
-class InfoHasSourcePrefix(BaseMetric):
-    """Deterministic check: every `data[].info` is the sentinel OR carries a
-    valid source prefix.
+class NoNullInfo(BaseMetric):
+    """Deterministic check: NO `data[].info` is `None`.
 
-    Valid forms (exactly):
-      - ``"<Not found>"``                  — the sentinel; no prefix.
-      - ``"[source: wiki] ..."``           — Wikipedia-grounded answer.
-      - ``"[source: llm] ..."``            — LLM-knowledge fallback.
-
-    The prefix is the agent's provenance signal: consumers can see whether
-    each summary is article-grounded or memory-grounded without re-running
-    the agent. Any other form (missing prefix, different casing, dropped
-    space) is a contract violation.
-    """
-
-    threshold: float = 1.0
-    async_mode: bool = False
-
-    def __init__(self, threshold: float = 1.0) -> None:
-        self.threshold = threshold
-
-    def measure(self, test_case: LLMTestCase) -> float:
-        data, reason = _parse_payload(test_case.actual_output)
-        if reason is not None:
-            _set_failure(self, reason)
-            return self.score
-
-        for i, item in enumerate(data):
-            info = item["info"]
-            if info == SENTINEL_NOT_FOUND:
-                continue
-            if info.startswith(PREFIX_WIKI) or info.startswith(PREFIX_LLM):
-                continue
-            _set_failure(
-                self,
-                f"data[{i}].info missing source prefix — got "
-                f"{info[:40]!r}; expected sentinel or one of "
-                f"'{PREFIX_WIKI}', '{PREFIX_LLM}'",
-            )
-            return self.score
-
-        _set_success(
-            self,
-            f"all {len(data)} items carry a valid source prefix or sentinel",
-        )
-        return self.score
-
-    async def a_measure(self, test_case: LLMTestCase, *args: Any, **kwargs: Any) -> float:
-        return self.measure(test_case)
-
-    def is_successful(self) -> bool:
-        return bool(self.success)
-
-    @property
-    def __name__(self) -> str:
-        return "Info Has Source Prefix"
-
-
-class NoSentinelInfo(BaseMetric):
-    """Deterministic check: NO `data[].info` is the `<Not found>` sentinel.
-
-    Stricter sibling of :class:`InfoNonEmptyOrSentinel`. Use this when the
+    Stricter sibling of :class:`InfoNonEmptyOrNull`. Use this when the
     input roster is known-famous people (e.g. ``PUBLIC_FIGURES`` for the
-    live eval) — the LLM must actually identify them; a sentinel is a
+    live eval) — the LLM must actually identify them; a null `info` is a
     regression (e.g. the lookup path got disconnected). For random users
-    where the sentinel is legitimately expected, use
-    :class:`InfoNonEmptyOrSentinel` instead.
+    where null `info` is legitimately expected, use
+    :class:`InfoNonEmptyOrNull` instead.
     """
 
     threshold: float = 1.0
@@ -316,21 +290,19 @@ class NoSentinelInfo(BaseMetric):
             _set_failure(self, reason)
             return self.score
 
-        sentinel_indices = [
-            i for i, item in enumerate(data) if item["info"] == SENTINEL_NOT_FOUND
-        ]
-        if sentinel_indices:
+        null_indices = [i for i, item in enumerate(data) if item["info"] is None]
+        if null_indices:
             _set_failure(
                 self,
-                f"sentinel '{SENTINEL_NOT_FOUND}' at indices {sentinel_indices} "
-                f"({len(sentinel_indices)}/{len(data)} items) — model failed to "
+                f"null info at indices {null_indices} "
+                f"({len(null_indices)}/{len(data)} items) — model failed to "
                 f"identify known person(s)",
             )
             return self.score
 
         _set_success(
             self,
-            f"all {len(data)} items have real (non-sentinel) info",
+            f"all {len(data)} items have non-null info",
         )
         return self.score
 
@@ -342,4 +314,4 @@ class NoSentinelInfo(BaseMetric):
 
     @property
     def __name__(self) -> str:
-        return "No Sentinel Info"
+        return "No Null Info"

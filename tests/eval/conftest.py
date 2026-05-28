@@ -11,7 +11,7 @@ from typing import Any, Callable
 import pytest
 
 # Roster for the live-agent regression guard. All five are iconic enough that
-# any working model + working prompt MUST identify them; if `NoSentinelInfo`
+# any working model + working prompt MUST identify them; if `NoNullInfo`
 # fails on this roster, the prompt or the model wiring is broken. Keep the
 # list iconic — a flaky entry would mask real regressions.
 PUBLIC_FIGURES: list[str] = [

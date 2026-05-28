@@ -7,9 +7,9 @@ messages, CI logs). They are pinned here as module-level constants — if
 you change the metric's wording, change the constant in the same commit;
 the test will catch any drift.
 
-Happy-path coverage (three additional tests) proves each metric accepts a
-well-shaped payload and reports `success=True` with `score=1.0` — together
-with the failure-mode tests these establish the bi-directional contract.
+Happy-path coverage proves each metric accepts a well-shaped payload and
+reports `success=True` with `score=1.0` — together with the failure-mode
+tests these establish the bi-directional contract.
 
 No live LLM call. No network. The metrics are pure-Python; the stubs are
 canned strings. Tests run in milliseconds.
@@ -21,18 +21,17 @@ from deepeval.test_case import LLMTestCase
 
 from .conftest import PUBLIC_FIGURES
 from .metrics import (
-    InfoHasSourcePrefix,
-    InfoNonEmptyOrSentinel,
-    NoSentinelInfo,
+    InfoNonEmptyOrNull,
+    NoNullInfo,
     PersonNamesMatchInput,
     ValidJsonStructure,
 )
 from .stub_agents import (
     empty_info_payload,
     malformed_json_payload,
-    sentinel_payload,
+    mismatched_pair_payload,
+    null_payload,
     unknown_person_payload,
-    unprefixed_info_payload,
     valid_payload,
 )
 
@@ -44,8 +43,8 @@ from .stub_agents import (
 REASON_JSON_PARSE_ERROR = "JSON parse error"
 REASON_UNKNOWN_PERSON = "unknown person 'Foo Bar'"
 REASON_EMPTY_INFO_AT_INDEX = "empty info at index 1"
-REASON_SENTINEL_PRESENT = "sentinel '<Not found>'"
-REASON_MISSING_PREFIX = "data[1].info missing source prefix"
+REASON_NULL_INFO_PRESENT = "null info at indices"
+REASON_MISMATCHED_PAIR = "data[1] mismatched pair"
 
 
 # === Failure-mode tests ===============================================
@@ -66,6 +65,22 @@ def test_valid_json_structure_rejects_malformed_json() -> None:
     assert REASON_JSON_PARSE_ERROR in metric.reason
 
 
+def test_valid_json_structure_rejects_mismatched_pair() -> None:
+    """`info` populated but `source=null` (or vice versa) → success=False;
+    reason names the offending index."""
+    test_case = LLMTestCase(
+        input="evaluate paired nullability",
+        actual_output=mismatched_pair_payload(PUBLIC_FIGURES),
+    )
+
+    metric = ValidJsonStructure()
+    metric.measure(test_case)
+
+    assert metric.success is False
+    assert metric.score == 0.0
+    assert REASON_MISMATCHED_PAIR in metric.reason
+
+
 def test_person_names_match_input_rejects_unknown_person() -> None:
     """Person not in `input_names` → success=False; reason names the unknown person."""
     test_case = LLMTestCase(
@@ -81,14 +96,14 @@ def test_person_names_match_input_rejects_unknown_person() -> None:
     assert REASON_UNKNOWN_PERSON in metric.reason
 
 
-def test_info_non_empty_or_sentinel_rejects_empty_info() -> None:
+def test_info_non_empty_or_null_rejects_empty_info() -> None:
     """Empty `info` at index 1 → success=False; reason names the offending index."""
     test_case = LLMTestCase(
         input="evaluate info non-empty",
         actual_output=empty_info_payload(PUBLIC_FIGURES),
     )
 
-    metric = InfoNonEmptyOrSentinel()
+    metric = InfoNonEmptyOrNull()
     metric.measure(test_case)
 
     assert metric.success is False
@@ -96,38 +111,23 @@ def test_info_non_empty_or_sentinel_rejects_empty_info() -> None:
     assert REASON_EMPTY_INFO_AT_INDEX in metric.reason
 
 
-def test_info_has_source_prefix_rejects_unprefixed_info() -> None:
-    """Missing prefix at index 1 → success=False; reason names the index."""
-    test_case = LLMTestCase(
-        input="evaluate source prefix",
-        actual_output=unprefixed_info_payload(PUBLIC_FIGURES),
-    )
-
-    metric = InfoHasSourcePrefix()
-    metric.measure(test_case)
-
-    assert metric.success is False
-    assert metric.score == 0.0
-    assert REASON_MISSING_PREFIX in metric.reason
-
-
-def test_no_sentinel_info_rejects_all_sentinel_payload() -> None:
-    """All-sentinel payload → success=False; reason names the sentinel.
+def test_no_null_info_rejects_all_null_payload() -> None:
+    """All-null payload → success=False; reason names the null indices.
 
     This is the regression guard for the stub-tool bug: an agent that
-    answers ``<Not found>`` for every famous person must fail eval.
+    answers `null` for every famous person must fail eval.
     """
     test_case = LLMTestCase(
-        input="evaluate no sentinel",
-        actual_output=sentinel_payload(PUBLIC_FIGURES),
+        input="evaluate no null info",
+        actual_output=null_payload(PUBLIC_FIGURES),
     )
 
-    metric = NoSentinelInfo()
+    metric = NoNullInfo()
     metric.measure(test_case)
 
     assert metric.success is False
     assert metric.score == 0.0
-    assert REASON_SENTINEL_PRESENT in metric.reason
+    assert REASON_NULL_INFO_PRESENT in metric.reason
 
 
 # === Happy-path tests — metric is independently instantiable and
@@ -139,6 +139,20 @@ def test_valid_json_structure_accepts_valid_payload() -> None:
     test_case = LLMTestCase(
         input="evaluate JSON structure",
         actual_output=valid_payload(PUBLIC_FIGURES),
+    )
+
+    metric = ValidJsonStructure()
+    metric.measure(test_case)
+
+    assert metric.success is True
+    assert metric.score == 1.0
+
+
+def test_valid_json_structure_accepts_null_payload() -> None:
+    """Paired (info=null, source=null) is a valid shape."""
+    test_case = LLMTestCase(
+        input="evaluate JSON structure",
+        actual_output=null_payload(PUBLIC_FIGURES),
     )
 
     metric = ValidJsonStructure()
@@ -162,56 +176,28 @@ def test_person_names_match_input_accepts_payload_with_known_names() -> None:
     assert metric.score == 1.0
 
 
-def test_info_non_empty_or_sentinel_accepts_sentinel_payload() -> None:
-    """`info` is the `<Not found>` sentinel for every item → success=True."""
+def test_info_non_empty_or_null_accepts_null_payload() -> None:
+    """`info=null` for every item → success=True."""
     test_case = LLMTestCase(
         input="evaluate info non-empty",
-        actual_output=sentinel_payload(PUBLIC_FIGURES),
+        actual_output=null_payload(PUBLIC_FIGURES),
     )
 
-    metric = InfoNonEmptyOrSentinel()
+    metric = InfoNonEmptyOrNull()
     metric.measure(test_case)
 
     assert metric.success is True
     assert metric.score == 1.0
 
 
-def test_no_sentinel_info_accepts_valid_payload() -> None:
-    """Every item has real (non-sentinel) info → success=True; score=1.0."""
+def test_no_null_info_accepts_valid_payload() -> None:
+    """Every item has non-null info → success=True; score=1.0."""
     test_case = LLMTestCase(
-        input="evaluate no sentinel",
+        input="evaluate no null info",
         actual_output=valid_payload(PUBLIC_FIGURES),
     )
 
-    metric = NoSentinelInfo()
-    metric.measure(test_case)
-
-    assert metric.success is True
-    assert metric.score == 1.0
-
-
-def test_info_has_source_prefix_accepts_prefixed_payload() -> None:
-    """Every item carries `[source: wiki]` prefix → success=True; score=1.0."""
-    test_case = LLMTestCase(
-        input="evaluate source prefix",
-        actual_output=valid_payload(PUBLIC_FIGURES),
-    )
-
-    metric = InfoHasSourcePrefix()
-    metric.measure(test_case)
-
-    assert metric.success is True
-    assert metric.score == 1.0
-
-
-def test_info_has_source_prefix_accepts_sentinel_payload() -> None:
-    """All-sentinel payload is valid: sentinel needs no prefix."""
-    test_case = LLMTestCase(
-        input="evaluate source prefix",
-        actual_output=sentinel_payload(PUBLIC_FIGURES),
-    )
-
-    metric = InfoHasSourcePrefix()
+    metric = NoNullInfo()
     metric.measure(test_case)
 
     assert metric.success is True
