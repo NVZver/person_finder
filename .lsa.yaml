@@ -14,3 +14,8 @@ modules:
       - /tests/conftest.py
       - /tests/unit/__init__.py
       - /tests/unit/test_config.py
+  users:
+    spec: /specs/modules/users/spec.md
+    artifact_paths:
+      - /src/person_finder/users.py
+      - /tests/unit/test_users.py

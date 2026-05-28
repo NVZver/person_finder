@@ -8,8 +8,9 @@ license = { file = "LICENSE" }
 authors = [{ name = "person_finder contributors" }]
 
 # Runtime dependencies. LangChain / Groq / DeepEval are intentionally NOT added
-# in this epic; later epics own those.
+# yet; later epics own those.
 dependencies = [
+    "httpx>=0.27,<1",
     "pydantic-settings>=2.6,<3",
 ]
 
