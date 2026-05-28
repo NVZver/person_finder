@@ -21,6 +21,7 @@ Inherited contracts: [main.spec.md](../../main.spec.md) §Cross-Module Contracts
 - **F4 — Canonical system prompt.** The system prompt instructs the LLM to return ONLY a JSON object shaped `{"data":[{"person": str, "info": str}]}`, to use the literal `"<Not found>"` when no info is available, and to emit no prose or markdown fences.
 - **F5 — LangChain 1.x construction path.** The agent is built via `langchain.agents.create_agent(model, tools=[findPerson], system_prompt=...)` and invoked through `.invoke({"messages":[{"role":"user","content":...}]})`. The legacy `create_react_agent` + `AgentExecutor` pattern is not used.
 - **F6 — Model injection seam.** Both `build_agent` and `enrich_names` accept a `model` keyword argument so unit tests can inject a fake LLM without monkey-patching `ChatGroq`.
+- **F7 — Repair helper.** The module exposes `repair(broken_raw: str, error_msg: str, *, model: Any | None = None) -> str` — a one-shot LLM call (no ReAct loop, no tool calls) that wraps the validation-module repair-callable contract from [validation/spec.md F4](../validation/spec.md). Uses module-level `REPAIR_SYSTEM_PROMPT`. Default model constructed lazily via `_default_model()` to preserve NF2.
 
 ## Non-functional requirements / invariants
 
@@ -36,6 +37,7 @@ Inherited contracts: [main.spec.md](../../main.spec.md) §Cross-Module Contracts
 - **AC3** — When `build_agent(model=<injected>)` is called, the system passes `findPerson` in the `tools` list and the canonical `SYSTEM_PROMPT` as the `system_prompt` argument to `langchain.agents.create_agent`. Currently verified by `test_build_agent_passes_injected_model_through` in `tests/unit/test_agent.py`.
 - **AC4** — When `findPerson` is invoked with any name string, the system returns the literal `"<Not found>"`. Currently verified by `test_find_person_stub_returns_not_found` in `tests/unit/test_agent.py`.
 - **AC5** — When `import person_finder.agent` runs, the system does not read environment variables, read disk, or raise. Currently verified by `test_import_has_no_side_effects` in `tests/unit/test_agent.py`.
+- **AC6** — When `repair(broken_raw, error_msg, model=<injected>)` is called, the system invokes the injected model with the canonical `REPAIR_SYSTEM_PROMPT` + a user message containing `error_msg` and `broken_raw`, and returns the model's `.content` verbatim. Currently verified by `test_repair_invokes_model_and_returns_content_string` in `tests/unit/test_agent.py`.
 
 ## Open questions / follow-ups
 

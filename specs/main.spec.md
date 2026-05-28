@@ -15,8 +15,9 @@ Source: [README.md](../README.md), [ARCHITECTURE.md](../ARCHITECTURE.md).
 | agent | [modules/agent/spec.md](modules/agent/spec.md) | active |
 | validation | [modules/validation/spec.md](modules/validation/spec.md) | active |
 | eval | [modules/eval/spec.md](modules/eval/spec.md) | active |
+| render | [modules/render/spec.md](modules/render/spec.md) | active |
 
-Future modules (candidates from [ARCHITECTURE.md](../ARCHITECTURE.md) §Layers, to be confirmed at each feature): `render` (top-level entrypoint + error surfacing, Epic 5).
+No further modules planned for MVP — the five module specs above cover all MVP epics in [roadmap.md](roadmap.md).
 
 ## Cross-Module Contracts
 

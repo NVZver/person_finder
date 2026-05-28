@@ -76,6 +76,42 @@ def test_build_agent_default_model_requires_groq_api_key() -> None:
         agent_module.build_agent()
 
 
+def test_repair_invokes_model_and_returns_content_string() -> None:
+    """`repair(broken, err, *, model=<fake>)` returns the model's content verbatim.
+
+    Pins the cross-module contract from
+    [validation/spec.md F4](../../specs/modules/validation/spec.md): repair is a
+    `(broken_raw, error_msg) -> repaired_raw` callable. Here the agent module
+    wraps a single LLM call (no ReAct loop — repair is one-shot JSON fixing).
+    The model collaborator is faked; no real Groq call.
+    """
+    canned = '{"data":[{"person":"Ada","info":"<Not found>"}]}'
+
+    class _FakeMsg:
+        def __init__(self, content: str) -> None:
+            self.content = content
+
+    class _FakeModel:
+        def __init__(self) -> None:
+            self.calls: list[Any] = []
+
+        def invoke(self, messages: Any) -> Any:
+            self.calls.append(messages)
+            return _FakeMsg(canned)
+
+    fake = _FakeModel()
+    out = agent_module.repair("broken raw", "JSON parse error", model=fake)
+
+    assert out == canned
+    assert fake.calls, "model.invoke must be called exactly once"
+    # The repair prompt should carry the broken raw and the error description
+    # verbatim so the LLM can target the fix.
+    sent = fake.calls[0]
+    flat = str(sent)
+    assert "broken raw" in flat
+    assert "JSON parse error" in flat
+
+
 def test_import_has_no_side_effects(tmp_path: Path) -> None:
     """AC5 / NF2: `import person_finder.agent` must not read env, hit disk, or raise.
 
