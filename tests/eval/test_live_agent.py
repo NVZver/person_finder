@@ -1,10 +1,7 @@
-"""Live-agent eval: runs the production fetch→enrich path against the
-`PUBLIC_FIGURES` roster and asserts all four deterministic metrics.
-
-`enrich_names` itself handles JSON-decode retries internally (see
-`person_finder.agent`), so transient LLM glitches are repaired exactly like
-the user-facing CLI handles them. One Groq call per `make test-eval` on
-the happy path.
+"""Live-agent eval: runs `enrich_names` against the `PUBLIC_FIGURES` roster
+and asserts all four deterministic metrics. `enrich_names` handles JSON-decode
+retries internally (see `person_finder.agent`); one Groq call per
+`make test-eval` on the happy path.
 """
 
 from __future__ import annotations
@@ -31,9 +28,7 @@ def agent_payload(agent_under_test: Callable[..., Any]) -> str:
     return json.dumps(payload)
 
 
-def test_live_agent_passes_all_metrics(
-    judge_configured: Any, agent_payload: str
-) -> None:
+def test_live_agent_passes_all_metrics(agent_payload: str) -> None:
     test_case = LLMTestCase(
         input="live agent over PUBLIC_FIGURES",
         actual_output=agent_payload,

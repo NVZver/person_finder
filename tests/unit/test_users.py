@@ -3,20 +3,21 @@
 Covers: fetch 20 randomuser records, drop year-of-birth > 2000, return
 `list[str]` of `"First Last"` in API response order.
 
-External HTTP is mocked via `httpx.MockTransport` injected through the
-function's optional `client` parameter — no real network calls.
+`urllib.request.urlopen` is mocked via `unittest.mock.patch` — no network.
 """
 
 from __future__ import annotations
 
+import io
+import json
 from typing import Any
+from unittest.mock import patch
+from urllib.error import HTTPError, URLError
 
-import httpx
 import pytest
 
 
 def _record(first: str, last: str, year: int, month: int = 6, day: int = 15) -> dict[str, Any]:
-    """Build one randomuser-shaped record with a controllable DOB year."""
     iso = f"{year:04d}-{month:02d}-{day:02d}T08:30:00.000Z"
     return {
         "name": {"title": "Mr", "first": first, "last": last},
@@ -24,17 +25,11 @@ def _record(first: str, last: str, year: int, month: int = 6, day: int = 15) -> 
     }
 
 
-def _payload(records: list[dict[str, Any]]) -> dict[str, Any]:
-    return {"results": records, "info": {"seed": "x", "results": len(records), "page": 1, "version": "1.4"}}
-
-
-def _client_returning(handler) -> httpx.Client:
-    """Build an httpx.Client whose transport is the supplied handler."""
-    return httpx.Client(transport=httpx.MockTransport(handler))
+def _body(records: list[dict[str, Any]]) -> io.BytesIO:
+    return io.BytesIO(json.dumps({"results": records}).encode("utf-8"))
 
 
 def test_happy_path_mixed_years_returns_filtered_subset_in_order() -> None:
-    """20 records, mixed DOB years; only those born <= 2000 are kept, in order."""
     records = [
         _record("Adam", "Smith", 1980),    # kept
         _record("Bea", "Jones", 2005),     # dropped
@@ -59,14 +54,14 @@ def test_happy_path_mixed_years_returns_filtered_subset_in_order() -> None:
     ]
     captured: dict[str, Any] = {}
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        captured["url"] = str(request.url)
-        return httpx.Response(200, json=_payload(records))
+    def _urlopen(url: str, **kwargs: Any) -> io.BytesIO:
+        captured["url"] = url
+        return _body(records)
 
     from person_finder.users import fetch_user_names
 
-    with _client_returning(handler) as client:
-        names = fetch_user_names(client=client)
+    with patch("person_finder.users.urlopen", side_effect=_urlopen):
+        names = fetch_user_names()
 
     assert names == [
         "Adam Smith",
@@ -88,27 +83,19 @@ def test_happy_path_mixed_years_returns_filtered_subset_in_order() -> None:
 def test_all_born_after_2000_returns_empty_list() -> None:
     records = [_record(f"P{i}", f"L{i}", 2001 + (i % 5)) for i in range(20)]
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json=_payload(records))
-
     from person_finder.users import fetch_user_names
 
-    with _client_returning(handler) as client:
-        names = fetch_user_names(client=client)
-
-    assert names == []
+    with patch("person_finder.users.urlopen", return_value=_body(records)):
+        assert fetch_user_names() == []
 
 
 def test_all_born_2000_or_earlier_returns_all_twenty_in_order() -> None:
     records = [_record(f"First{i}", f"Last{i}", 1950 + i) for i in range(20)]
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json=_payload(records))
-
     from person_finder.users import fetch_user_names
 
-    with _client_returning(handler) as client:
-        names = fetch_user_names(client=client)
+    with patch("person_finder.users.urlopen", return_value=_body(records)):
+        names = fetch_user_names()
 
     assert names == [f"First{i} Last{i}" for i in range(20)]
 
@@ -117,78 +104,63 @@ def test_boundary_year_2000_is_kept() -> None:
     """Spec: drop *after* 2000 → year == 2000 is retained."""
     records = [_record("Boundary", "Person", 2000)]
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json=_payload(records))
-
     from person_finder.users import fetch_user_names
 
-    with _client_returning(handler) as client:
-        names = fetch_user_names(client=client)
-
-    assert names == ["Boundary Person"]
+    with patch("person_finder.users.urlopen", return_value=_body(records)):
+        assert fetch_user_names() == ["Boundary Person"]
 
 
-def test_non_200_response_raises_user_fetch_error() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(503, json={"error": "unavailable"})
+def test_http_error_status_raises_user_fetch_error() -> None:
+    err = HTTPError("https://x", 503, "Service Unavailable", hdrs={}, fp=None)  # type: ignore[arg-type]
 
     from person_finder.users import UserFetchError, fetch_user_names
 
-    with _client_returning(handler) as client:
+    with patch("person_finder.users.urlopen", side_effect=err):
         with pytest.raises(UserFetchError) as exc_info:
-            fetch_user_names(client=client)
+            fetch_user_names()
 
     assert "503" in str(exc_info.value)
 
 
-def test_malformed_json_body_raises_user_fetch_error() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, content=b"{not json")
-
+def test_url_error_raises_user_fetch_error() -> None:
     from person_finder.users import UserFetchError, fetch_user_names
 
-    with _client_returning(handler) as client:
+    with patch("person_finder.users.urlopen", side_effect=URLError("dns failure")):
         with pytest.raises(UserFetchError):
-            fetch_user_names(client=client)
+            fetch_user_names()
+
+
+def test_malformed_json_body_raises_user_fetch_error() -> None:
+    from person_finder.users import UserFetchError, fetch_user_names
+
+    with patch("person_finder.users.urlopen", return_value=io.BytesIO(b"{not json")):
+        with pytest.raises(UserFetchError):
+            fetch_user_names()
 
 
 def test_missing_results_key_raises_user_fetch_error() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json={"info": {}})
-
     from person_finder.users import UserFetchError, fetch_user_names
 
-    with _client_returning(handler) as client:
+    with patch("person_finder.users.urlopen", return_value=io.BytesIO(b'{"info":{}}')):
         with pytest.raises(UserFetchError):
-            fetch_user_names(client=client)
+            fetch_user_names()
 
 
 def test_record_missing_dob_date_raises_user_fetch_error() -> None:
-    bad_record = {
-        "name": {"first": "No", "last": "Date"},
-        "dob": {"age": 30},
-    }
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json=_payload([bad_record]))
+    bad_record = {"name": {"first": "No", "last": "Date"}, "dob": {"age": 30}}
 
     from person_finder.users import UserFetchError, fetch_user_names
 
-    with _client_returning(handler) as client:
+    with patch("person_finder.users.urlopen", return_value=_body([bad_record])):
         with pytest.raises(UserFetchError):
-            fetch_user_names(client=client)
+            fetch_user_names()
 
 
 def test_empty_results_returns_empty_list_not_error() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json=_payload([]))
-
     from person_finder.users import fetch_user_names
 
-    with _client_returning(handler) as client:
-        names = fetch_user_names(client=client)
-
-    assert names == []
+    with patch("person_finder.users.urlopen", return_value=_body([])):
+        assert fetch_user_names() == []
 
 
 def test_record_missing_name_first_raises_user_fetch_error() -> None:
@@ -197,35 +169,8 @@ def test_record_missing_name_first_raises_user_fetch_error() -> None:
         "dob": {"date": "1990-01-01T00:00:00.000Z", "age": 35},
     }
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json=_payload([bad_record]))
-
     from person_finder.users import UserFetchError, fetch_user_names
 
-    with _client_returning(handler) as client:
+    with patch("person_finder.users.urlopen", return_value=_body([bad_record])):
         with pytest.raises(UserFetchError):
-            fetch_user_names(client=client)
-
-
-def test_uses_default_url_when_no_client_constructed_internally(monkeypatch: pytest.MonkeyPatch) -> None:
-    """When no client is injected, the function builds one and hits the canonical URL."""
-    captured: dict[str, Any] = {}
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        captured["url"] = str(request.url)
-        return httpx.Response(200, json=_payload([_record("Solo", "Run", 1990)]))
-
-    # Patch the module-level httpx.Client so the internal `with httpx.Client(...)`
-    # path uses our MockTransport without us injecting a client.
-    import person_finder.users as users_mod
-
-    real_client = httpx.Client
-
-    def fake_client(*args: Any, **kwargs: Any) -> httpx.Client:
-        return real_client(transport=httpx.MockTransport(handler))
-
-    monkeypatch.setattr(users_mod.httpx, "Client", fake_client)
-
-    names = users_mod.fetch_user_names()
-    assert names == ["Solo Run"]
-    assert captured["url"] == "https://randomuser.me/api/?results=20"
+            fetch_user_names()

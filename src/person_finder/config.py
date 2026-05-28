@@ -1,23 +1,17 @@
-"""Typed application settings.
-
-Both keys are required and non-blank. Values come from the process env first,
-then from a `.env` file in the CWD. Instantiating `Settings()` raises
-`pydantic.ValidationError` if either is missing.
-"""
+"""Load `GROQ_API_KEY` from the process env or a local `.env` file."""
 
 from __future__ import annotations
 
-from pydantic import Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
+import os
+from pathlib import Path
+
+from dotenv import load_dotenv
 
 
-class Settings(BaseSettings):
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        case_sensitive=False,
-        extra="ignore",
-    )
-
-    groq_api_key: str = Field(min_length=1)
-    google_api_key: str = Field(min_length=1)
+def groq_api_key() -> str:
+    """Return `GROQ_API_KEY` or raise `RuntimeError` if missing/blank."""
+    load_dotenv(Path.cwd() / ".env")
+    key = os.environ.get("GROQ_API_KEY")
+    if not key:
+        raise RuntimeError("GROQ_API_KEY is required")
+    return key

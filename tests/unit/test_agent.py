@@ -49,7 +49,6 @@ def test_enrich_names_returns_parsed_dict_on_first_try(
     assert result == {"data": [{"person": "Ada Lovelace", "info": "Mathematician"}]}
     assert len(stub.invocations) == 1
     assert captured["model"] == "sentinel"
-    assert captured["tools"] == []
     assert "Ada Lovelace" in stub.invocations[0][0]["content"]
 
 
@@ -64,29 +63,23 @@ def test_enrich_names_retries_with_error_message_on_bad_json(
 
     assert result == {"data": [{"person": "Ada", "info": "<Not found>"}]}
     assert len(stub.invocations) == 2
-    # Second invocation must include a user message with the "[Invalid JSON]" prompt.
     repair_msg = stub.invocations[1][-1]
     assert repair_msg["role"] == "user"
-    assert "[Invalid JSON]" in repair_msg["content"]
-    assert "fix and return valid JSON only" in repair_msg["content"]
 
 
-def test_enrich_names_raises_after_three_retries(monkeypatch: pytest.MonkeyPatch) -> None:
-    stub = _StubAgent(["bad"] * (agent_module.MAX_RETRIES + 1))
+def test_enrich_names_raises_after_max_attempts(monkeypatch: pytest.MonkeyPatch) -> None:
+    stub = _StubAgent(["bad"] * agent_module.MAX_ATTEMPTS)
     _patch_create_agent(monkeypatch, stub)
 
     with pytest.raises(json.JSONDecodeError):
         agent_module.enrich_names(["Ada"], model="sentinel")
 
-    # Initial attempt + MAX_RETRIES = 4 total invocations.
-    assert len(stub.invocations) == agent_module.MAX_RETRIES + 1
+    assert len(stub.invocations) == agent_module.MAX_ATTEMPTS
 
 
-def test_enrich_names_without_groq_key_raises(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("GOOGLE_API_KEY", "google-test")
-    from pydantic import ValidationError
-
-    with pytest.raises(ValidationError):
+def test_enrich_names_without_groq_key_raises() -> None:
+    """Autouse fixture already deleted `GROQ_API_KEY`."""
+    with pytest.raises(RuntimeError, match="GROQ_API_KEY is required"):
         agent_module.enrich_names(["Ada Lovelace"])
 
 

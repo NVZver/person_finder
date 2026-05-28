@@ -1,9 +1,10 @@
-"""LangChain agent that turns a list of names into a parsed JSON dict.
+"""Identify each name via a Groq LLM, using its own training knowledge.
 
-The agent answers from the LLM's own training knowledge (no external tools),
-matching the assignment's Exercises 4-5. If the model's reply fails to parse
-as JSON, the parse error is sent back to the model with a "fix it" instruction,
-up to MAX_RETRIES times.
+The model returns raw JSON in the agreed shape; if a reply fails to parse,
+the parse error is sent back to the model with a "fix it" instruction, up
+to MAX_ATTEMPTS times. We use `create_agent(tools=[])` to keep the surface
+on the LangChain agent path even though no tools are wired — matching the
+assignment's "agentic workflow using LangChain" framing.
 """
 
 from __future__ import annotations
@@ -14,10 +15,10 @@ from typing import Any
 from langchain.agents import create_agent
 from langchain_groq import ChatGroq
 
-from person_finder.config import Settings
+from person_finder.config import groq_api_key
 
 
-SYSTEM_PROMPT = """You are a research assistant identifying people from your training knowledge.
+SYSTEM_PROMPT = """You are a research assistant identifying people using your own training knowledge.
 
 For each person name the user provides, return a single JSON object with this schema:
 
@@ -25,20 +26,23 @@ For each person name the user provides, return a single JSON object with this sc
 
 Rules:
 - `person` must match the input name verbatim.
-- `info` is a short factual summary (1-2 sentences) covering who the person is and
-  their best-known work, drawn from your training knowledge.
-- If you genuinely don't recognize the name (e.g. a random private individual),
-  set `info` to the literal string "<Not found>".
+- `info` is a 1-2 sentence factual summary of who the person is and their best-known
+  work, drawn from your training knowledge.
+- Default to providing a summary whenever the name plausibly matches a real public
+  figure you know — historical, scientific, cultural, political, athletic, business,
+  or otherwise. If several people share the name, pick the most prominent.
+- Use the literal string "<Not found>" ONLY when the name is clearly a random
+  private individual you have no knowledge of — never as a fallback for ambiguity.
 - Output ONLY the JSON object. No prose, no markdown fences.
 """
 
-MAX_RETRIES = 3
+MAX_ATTEMPTS = 3
 
 
 def _model() -> ChatGroq:
     return ChatGroq(
         model="llama-3.3-70b-versatile",
-        api_key=Settings().groq_api_key,
+        api_key=groq_api_key(),
         temperature=0,
     )
 
@@ -46,8 +50,9 @@ def _model() -> ChatGroq:
 def enrich_names(names: list[str], *, model: Any | None = None) -> dict[str, Any]:
     """Ask the LLM to identify each name; re-prompt on JSON parse failure.
 
-    Returns the parsed JSON dict. After MAX_RETRIES failed parses, raises the
-    final `json.JSONDecodeError`.
+    Total LLM invocations are capped at `MAX_ATTEMPTS` (1 initial + up to
+    `MAX_ATTEMPTS - 1` repair calls). On final failure raises the last
+    `json.JSONDecodeError`.
     """
     agent = create_agent(
         model=model if model is not None else _model(),
@@ -61,7 +66,7 @@ def enrich_names(names: list[str], *, model: Any | None = None) -> dict[str, Any
         }
     ]
     last_error: json.JSONDecodeError | None = None
-    for _ in range(MAX_RETRIES + 1):
+    for _ in range(MAX_ATTEMPTS):
         result = agent.invoke({"messages": messages})
         raw = result["messages"][-1].content
         try:
