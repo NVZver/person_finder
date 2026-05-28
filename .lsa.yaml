@@ -14,3 +14,8 @@ modules:
       - /tests/conftest.py
       - /tests/unit/__init__.py
       - /tests/unit/test_config.py
+  agent:
+    spec: /specs/modules/agent/spec.md
+    artifact_paths:
+      - /src/person_finder/agent.py
+      - /tests/unit/test_agent.py
