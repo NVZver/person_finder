@@ -3,7 +3,7 @@
 A small Python CLI for the NN GenAI Engineer assignment. It fetches 20 random
 users from [randomuser.me](https://randomuser.me), filters out anyone born
 after the year 2000, then runs a LangChain agent — Groq-hosted
-`llama-3.3-70b-versatile` plus a `wikipedia_search` tool — that looks each
+`llama-3.1-8b-instant` plus a `wikipedia_search` tool — that looks each
 remaining person up on Wikipedia and summarises them from the article. The
 final JSON is validated (with a bounded repair-retry loop) and printed to
 stdout.
@@ -11,7 +11,7 @@ stdout.
 ## Pipeline
 
 ```
-randomuser.me  ->  filter by DOB year  ->  LangChain agent (Groq llama-3.3-70b)
+randomuser.me  ->  filter by DOB year  ->  LangChain agent (Groq llama-3.1-8b)
                                               |          ^
                                               |          |  per-name lookup
                                               v          |
@@ -125,15 +125,15 @@ absent, so they stay green in dev environments without credentials.
 
 ## Engineering notes
 
-- **Latency.** Measured over 5 runs: median **1.07s** end-to-end
-  (range 0.86–2.36s). Breakdown: randomuser.me HTTP ~0.16s, Groq LLM
-  ~0.89s. The repair-retry loop is bounded at `MAX_ATTEMPTS = 3` so the
-  hard ceiling is 3× the LLM call.
-- **Cost.** Measured median ~**353 input + ~379 output tokens** per run.
-  At Groq's published rates for `llama-3.3-70b-versatile` ($0.59/M input,
-  $0.79/M output) that works out to ~**$0.0005 per run** — roughly half
-  a cent per ten runs. Single batched call (not per-name) keeps the
-  system-prompt overhead amortized.
+- **Latency.** Latency varies with how many of the 20 names trigger
+  Wikipedia lookups. The repair-retry loop is bounded at `MAX_ATTEMPTS = 3`
+  so the hard ceiling is 3× the LLM call. (Earlier measurements on
+  `llama-3.3-70b-versatile` showed median 1.07s end-to-end; the current
+  `llama-3.1-8b-instant` is faster — re-measure if you need a hard number.)
+- **Cost.** Two levers keep tokens low: a shorter system prompt and a
+  600-char Wikipedia content cap. The smaller 8B model is also ~10× cheaper
+  per token than 70B at Groq's published rates. Single batched call (not
+  per-name) keeps the system-prompt overhead amortized.
 - **Reliability.** Failures are typed at the boundary (`UserFetchError`,
   `json.JSONDecodeError`) and translated into a single user-facing message
   with a non-zero exit code; no internal traceback reaches the user.

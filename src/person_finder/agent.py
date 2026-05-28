@@ -40,41 +40,27 @@ _wikipedia.set_user_agent(
 )
 
 
-SYSTEM_PROMPT = """You are a research assistant identifying people. Wikipedia is your primary
-source; your own training knowledge is a fallback.
+SYSTEM_PROMPT = """Identify people. Wikipedia first, training knowledge as fallback.
 
-For each name the user provides, follow this ladder:
+For each input name:
+1. Call `wikipedia_search` with the name.
+2. If the article clearly describes a real public figure of that name, return
+   `[source: wiki] ` + a 1-2 sentence summary drawn from the article.
+3. Else, if you confidently know the person, return `[source: llm] ` + a 1-2
+   sentence summary from training knowledge.
+4. Only if Wikipedia AND training knowledge both fail, use `<Not found>`.
 
-1. Call the `wikipedia_search` tool with the name as the query.
-2. If the tool returns an article that clearly describes a real public figure
-   with that name, write `[source: wiki] ` followed by a 1-2 sentence summary
-   covering who they are and their best-known work, drawn from the article.
-3. If the tool returns nothing, an unrelated article, or a disambiguation /
-   no-match message, fall back to your own training knowledge: if you can
-   confidently identify the person yourself, write `[source: llm] ` followed
-   by the same 1-2 sentence summary from what you know.
-4. Only if Wikipedia returned nothing AND you have no reliable knowledge of
-   the person, use the literal string "<Not found>" for `info` (no prefix —
-   the sentinel stands alone).
+Return ONE JSON object: {"data": [{"person": "First Last", "info": "..."}]}
 
-After researching every name, return a single JSON object:
-
-  {"data": [{"person": "First Last", "info": "..."}]}
-
-Rules:
-- `person` must match the input name verbatim.
-- `info` must be EXACTLY one of: `<Not found>`, a string starting with
-  `[source: wiki] `, or a string starting with `[source: llm] ` — no other
-  prefix forms (case, spacing, brackets) are valid.
-- Do not embellish beyond what your source (Wikipedia, then memory) actually
-  supports. Prefer accurate-but-brief over creative.
-- If multiple people share a name, pick the most prominent.
-- Output ONLY the final JSON object. No prose, no markdown fences.
+- `person` matches the input verbatim.
+- `info` is EXACTLY one of: `<Not found>`, `[source: wiki] ...`, `[source: llm] ...`.
+- Don't embellish beyond the source. On name clashes, pick the most prominent.
+- Output ONLY the JSON. No prose, no markdown fences.
 """
 
 MAX_ATTEMPTS = 3
 
-_WIKI = WikipediaAPIWrapper(top_k_results=1, doc_content_chars_max=1500)
+_WIKI = WikipediaAPIWrapper(top_k_results=1, doc_content_chars_max=600)
 
 
 @tool
@@ -90,7 +76,7 @@ def wikipedia_search(query: str) -> str:
 
 def _model() -> ChatGroq:
     return ChatGroq(
-        model="llama-3.3-70b-versatile",
+        model="llama-3.1-8b-instant",
         api_key=groq_api_key(),
         temperature=0,
     )
@@ -122,10 +108,18 @@ def enrich_names(names: list[str], *, model: Any | None = None) -> dict[str, Any
             return json.loads(raw)
         except json.JSONDecodeError as exc:
             last_error = exc
-            messages = list(result["messages"]) + [
+            # Repair retry: drop the tool transcript — only the syntax needs
+            # fixing, and replaying every wikipedia_search result is wasted
+            # tokens. The system prompt is still applied by the agent.
+            messages = [
                 {
                     "role": "user",
-                    "content": f"[Invalid JSON] {exc}, fix and return valid JSON only",
+                    "content": (
+                        f"The previous output was not valid JSON ({exc}). "
+                        "Return ONLY a valid JSON object matching the schema. "
+                        "Do not call tools.\n\n"
+                        f"Previous output:\n{raw}"
+                    ),
                 }
             ]
     assert last_error is not None
