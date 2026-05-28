@@ -61,3 +61,40 @@ def enrich_names(names: list[str], *, model: Any | None = None) -> str:
     )
     result = agent.invoke({"messages": [{"role": "user", "content": user_msg}]})
     return result["messages"][-1].content
+
+
+REPAIR_SYSTEM_PROMPT = """You previously produced output that failed schema validation.
+
+Required schema: {"data": [{"person": str, "info": str}]}.
+
+Return ONLY a corrected JSON object matching that schema. No prose, no markdown
+fences. Do not invent new people; preserve the original `person` values.
+"""
+
+
+def repair(broken_raw: str, error_msg: str, *, model: Any | None = None) -> str:
+    """One-shot LLM repair pass over a validation-failed JSON candidate.
+
+    Wraps the cross-module repair callable contract from
+    [validation/spec.md F4](../../specs/modules/validation/spec.md):
+    ``(broken_raw, error_msg) -> repaired_raw``. The fix is a single model
+    call (no ReAct loop / no tool calls) because repair is targeted JSON
+    surgery, not enrichment.
+
+    Constructed lazily — the default model is built per call via
+    :func:`_default_model` so ``import person_finder.agent`` stays
+    side-effect-free (NF2).
+    """
+    llm = model if model is not None else _default_model()
+    user_msg = (
+        f"Previous output failed validation: {error_msg}\n\n"
+        f"Broken output was:\n{broken_raw}\n\n"
+        "Return a corrected JSON object only."
+    )
+    response = llm.invoke(
+        [
+            {"role": "system", "content": REPAIR_SYSTEM_PROMPT},
+            {"role": "user", "content": user_msg},
+        ]
+    )
+    return response.content

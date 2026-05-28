@@ -42,3 +42,12 @@ modules:
       - /tests/eval/test_person_matches.py
       - /tests/eval/test_info_present.py
       - /specs/modules/eval/spec.md
+  render:
+    spec: /specs/modules/render/spec.md
+    artifact_paths:
+      - /src/person_finder/render.py
+      - /src/person_finder/__main__.py
+      - /tests/unit/test_render.py
+      - /tests/e2e/__init__.py
+      - /tests/e2e/conftest.py
+      - /tests/e2e/test_pipeline.py
