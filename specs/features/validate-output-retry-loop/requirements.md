@@ -2,7 +2,7 @@
 
 ## Summary
 
-Add a code-only validation module at `src/person_finder/validation.py` that asserts the LangChain agent's JSON output matches the cross-module contract from `main.spec.md:20` (`{"data": [{"person": str, "info": str}, ...]}`), invokes a caller-supplied `repair_fn` up to 3 times on failure, and raises the spec-mandated `Error("Could not respond")` on exhaustion. The module does NOT import the agent — Epic 5 (`render`) supplies `repair_fn` as a closure over the agent so validation stays unit-testable without a live LLM.
+Add a code-only validation module at `src/person_finder/validation.py` that asserts the LangChain agent's JSON output matches the cross-module contract from `main.spec.md:22` (`{"data": [{"person": str, "info": str}]}`), invokes a caller-supplied `repair_fn` up to 3 times on failure, and raises the spec-mandated `Error("Could not respond")` on exhaustion. The module does NOT import the agent — Epic 5 (`render`) supplies `repair_fn` as a closure over the agent so validation stays unit-testable without a live LLM.
 
 Sources: [ARCHITECTURE.md](../../../ARCHITECTURE.md) §Layers/2 lines 41-48 (check list + retry cap + error string); [main.spec.md](../../main.spec.md) §Cross-Module Contracts lines 17-23 (error signal); [code.md](../../standards/code.md) §Validation & retry lines 29-34; [testing.md](../../standards/testing.md) §Unit lines 17-19 (mocked external calls). Roadmap: [roadmap.md](../../roadmap.md) row 4.
 
@@ -27,7 +27,7 @@ Sources: [ARCHITECTURE.md](../../../ARCHITECTURE.md) §Layers/2 lines 41-48 (che
 | NF3 | **Defensive against non-str `repair_fn` output.** If `repair_fn` returns a non-string by mistake, the result MUST be counted as a normal validation failure (burn one budget unit), NOT crash with `TypeError`. |
 | NF4 | **Unit-tested with mocked `repair_fn` only.** No live Groq / LangChain / Gemini calls in any validation test. Tests count invocations via local `list[...]` or `nonlocal int`. |
 | NF5 | **Other tiers stay green.** `make test-unit` exits 0 with the existing test count (5 agent + 6 config = 11) plus the new validation tests. `make test-eval` and `make test-e2e` are unaffected. |
-| NF6 | **Cross-module symbol shadowing documented.** `Error` is the spec-mandated name (`main.spec.md:22`). Python has no builtin `Error` so nothing is actually shadowed, but the module docstring explicitly warns against `from person_finder.validation import *` and instructs callers to import `Error` explicitly. |
+| NF6 | **Cross-module symbol shadowing documented.** `Error` is the spec-mandated name (`main.spec.md:24`). Python has no builtin `Error` so nothing is actually shadowed, but the module docstring explicitly warns against `from person_finder.validation import *` and instructs callers to import `Error` explicitly. |
 
 ## Inputs & Outputs
 

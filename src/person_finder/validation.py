@@ -91,7 +91,6 @@ def validate_output(
             last_failure = exc
             if repair_fn is None or attempt == MAX_REPAIRS:
                 break
-            # Hand the broken raw + precise error to the caller's repair fn.
             current = repair_fn(current, str(exc))
 
     # Budget exhausted (or no repair_fn given). Surface the spec-mandated signal
@@ -143,10 +142,10 @@ def _check_shape(payload: Any) -> dict[str, Any]:
         for key in ("person", "info"):
             if key not in item:
                 raise _ValidationFailure(f'data[{i}] missing "{key}" key')
-            if not isinstance(item[key], str):
+            value = item[key]
+            if not isinstance(value, str):
                 raise _ValidationFailure(
-                    f"data[{i}].{key} is not a str — got "
-                    f"{type(item[key]).__name__}"
+                    f"data[{i}].{key} is not a str — got {type(value).__name__}"
                 )
 
     return payload

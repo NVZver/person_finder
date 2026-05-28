@@ -29,7 +29,7 @@ Add the `validation` module — pure-Python, code-only, no agent import — with
 
 - `validation.py` mirrors `design.md` §"Public surface", §"Retry loop shape", §"Error hierarchy", §"Parse + check pipeline" exactly. Stdlib `json` is the only external dependency. The retry loop uses `for attempt in range(MAX_REPAIRS + 1)` with explicit `attempt == MAX_REPAIRS` break-and-raise to avoid an extra `repair_fn` call after the budget is spent. `Error("Could not respond")` chains the last `_ValidationFailure` via `from`.
 - `_parse_and_check` accepts `Any` (not `str`) so a `repair_fn` returning `None` becomes a normal validation failure rather than a `TypeError` (NF3).
-- `tests/unit/test_validation.py` matches the journey shapes in `test-suites.md`: 8 logical tests, 17 collected pytest items (the AC5 parametrized test contributes 9 cases). All tests use stdlib + `pytest` + module-local mock callables; no LangChain, no Groq, no network.
+- `tests/unit/test_validation.py` matches the journey shapes in `test-suites.md`: 9 logical test functions, 17 collected pytest items (the AC5 parametrized test contributes 9 cases). All tests use stdlib + `pytest` + module-local mock callables; no LangChain, no Groq, no network.
 - Spec graph wiring: `specs/modules/validation/spec.md` follows the LSA module-spec template (mirrors `specs/modules/agent/spec.md`). `main.spec.md` Module Index gains rows for both `agent` and `validation` (agent row is fix-it-forward per OQ1). `.lsa.yaml` `validation:` block lists the two artifact paths.
 
 ### Acceptance Criteria

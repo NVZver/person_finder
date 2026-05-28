@@ -21,7 +21,7 @@
 MAX_REPAIRS: Final[int] = 3
 
 class Error(Exception):
-    """Cross-module failure signal per main.spec.md:22."""
+    """Cross-module failure signal per main.spec.md:24."""
 
 def validate_output(
     raw: str,
@@ -56,7 +56,7 @@ raise Error("Could not respond") from last_failure
 
 ### Error hierarchy
 
-- **Public `Error(Exception)`** — module-local symbol named per spec letter (`main.spec.md:22`). Single argument `"Could not respond"`. No subclass info; the contract is just the string.
+- **Public `Error(Exception)`** — module-local symbol named per spec letter (`main.spec.md:24`). Single argument `"Could not respond"`. No subclass info; the contract is just the string.
 - **Private `_ValidationFailure(Exception)`** — internal. Carries the precise human-readable diagnostic intended for `repair_fn`'s `error_msg` argument. Never raised outside this module; only attached to the public `Error` via `__cause__`.
 
 ### Parse + check pipeline
@@ -103,7 +103,7 @@ Three reasons:
 
 ### `Error` name — spec letter vs Pythonicity
 
-`main.spec.md:22` says the failure signal is `Error("Could not respond")`. Two reads:
+`main.spec.md:24` says the failure signal is `Error("Could not respond")`. Two reads:
 
 - **Literal** — define a `class Error(Exception)` in `validation.py`.
 - **Idiomatic** — interpret `Error` as "some exception, name TBD" and use e.g. `RuntimeError`.
@@ -116,14 +116,14 @@ None. The function operates on a JSON-shaped `str` and returns a Python `dict`.
 
 ## API / Interface Changes
 
-None to the cross-module contract from `main.spec.md:17-23`. This feature implements that contract; it does not extend it.
+None to the cross-module contract from `main.spec.md:19-26` (§Cross-Module Contracts block). This feature implements that contract; it does not extend it.
 
-(No `contract.yaml` — trigger NO at User Verification 1. There is no HTTP endpoint, no request/response schema, no DB schema, no new shared type. The agent's output shape was already declared in `main.spec.md:20`; validation enforces it.)
+(No `contract.yaml` — trigger NO at User Verification 1. There is no HTTP endpoint, no request/response schema, no DB schema, no new shared type. The agent's output shape was already declared in `main.spec.md:22`; validation enforces it.)
 
 ## Cross-Module Contracts
 
-- **Consumed (read-only):** `main.spec.md:20` `{"data": [{"person": str, "info": str}, ...]}` — the agent's output shape that validation enforces.
-- **Owned:** `main.spec.md:22` `Error("Could not respond")` — the failure signal Epic 5 catches. This feature defines the concrete exception class at `person_finder.validation.Error`.
+- **Consumed (read-only):** `main.spec.md:22` `{"data": [{"person": str, "info": str}]}` — the agent's output shape that validation enforces.
+- **Owned:** `main.spec.md:24` `Error("Could not respond")` — the failure signal Epic 5 catches. This feature defines the concrete exception class at `person_finder.validation.Error`.
 
 ## Open Questions
 
