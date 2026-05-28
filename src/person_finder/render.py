@@ -48,5 +48,5 @@ def main() -> None:
         print(USER_FACING_RETRY_MESSAGE, file=sys.stderr)
         sys.exit(1)
 
-    print(json.dumps(payload, indent=2), flush=True)
+    print(json.dumps(payload, indent=2, ensure_ascii=False), flush=True)
     sys.exit(0)

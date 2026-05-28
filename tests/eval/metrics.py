@@ -227,3 +227,55 @@ class InfoNonEmptyOrSentinel(BaseMetric):
     @property
     def __name__(self) -> str:
         return "Info Non-Empty Or Sentinel"
+
+
+class NoSentinelInfo(BaseMetric):
+    """Deterministic check: NO `data[].info` is the `<Not found>` sentinel.
+
+    Stricter sibling of :class:`InfoNonEmptyOrSentinel`. Use this when the
+    input roster is known-famous people (e.g. ``PUBLIC_FIGURES`` for the
+    live eval) — the LLM must actually identify them; a sentinel is a
+    regression (e.g. the lookup path got disconnected). For random users
+    where the sentinel is legitimately expected, use
+    :class:`InfoNonEmptyOrSentinel` instead.
+    """
+
+    threshold: float = 1.0
+    async_mode: bool = False
+
+    def __init__(self, threshold: float = 1.0) -> None:
+        self.threshold = threshold
+
+    def measure(self, test_case: LLMTestCase) -> float:
+        data, reason = _parse_payload(test_case.actual_output)
+        if reason is not None:
+            _set_failure(self, reason)
+            return self.score
+
+        sentinel_indices = [
+            i for i, item in enumerate(data) if item["info"] == SENTINEL_NOT_FOUND
+        ]
+        if sentinel_indices:
+            _set_failure(
+                self,
+                f"sentinel '{SENTINEL_NOT_FOUND}' at indices {sentinel_indices} "
+                f"({len(sentinel_indices)}/{len(data)} items) — model failed to "
+                f"identify known person(s)",
+            )
+            return self.score
+
+        _set_success(
+            self,
+            f"all {len(data)} items have real (non-sentinel) info",
+        )
+        return self.score
+
+    async def a_measure(self, test_case: LLMTestCase, *args: Any, **kwargs: Any) -> float:
+        return self.measure(test_case)
+
+    def is_successful(self) -> bool:
+        return bool(self.success)
+
+    @property
+    def __name__(self) -> str:
+        return "No Sentinel Info"

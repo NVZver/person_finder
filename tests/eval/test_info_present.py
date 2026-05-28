@@ -18,7 +18,7 @@ from deepeval import assert_test
 from deepeval.test_case import LLMTestCase
 
 from .conftest import PUBLIC_FIGURES
-from .metrics import InfoNonEmptyOrSentinel
+from .metrics import InfoNonEmptyOrSentinel, NoSentinelInfo
 
 
 @pytest.fixture
@@ -32,18 +32,29 @@ def agent_output(agent_under_test: Callable[..., Any]) -> str:
     return agent_under_test(PUBLIC_FIGURES)
 
 
-def test_agent_info_is_non_empty_or_sentinel(
+def test_agent_info_is_present_and_real(
     judge_configured: Any, agent_output: str
 ) -> None:
-    """Every `data[].info` is non-empty after `strip()` or the `<Not found>` sentinel.
+    """Every `data[].info` is non-empty AND no item is the `<Not found>` sentinel.
 
-    `judge_configured` is requested to satisfy the "judge configured as
-    Gemini 2.0 Flash" prerequisite at runtime; `InfoNonEmptyOrSentinel`
-    is deterministic and does not invoke the judge. Both fixtures route
-    through the skip cascade in `tests/eval/conftest.py`.
+    Two assertions over the same agent call (kept in one test to preserve
+    the "one Groq call per file" budget, since the `agent_output` fixture
+    is function-scoped):
+
+    - `InfoNonEmptyOrSentinel`: shape contract — info is a non-empty
+      string OR the sentinel. Catches whitespace-only / missing info.
+    - `NoSentinelInfo`: regression guard — for the `PUBLIC_FIGURES`
+      roster (Einstein, Curie), the LLM MUST resolve every entry from
+      training data. A sentinel anywhere means the lookup path is broken
+      (e.g. a tool returning empty, or a prompt forbidding the LLM from
+      answering from its own knowledge — exactly the stub-tool bug this
+      metric was added to prevent).
+
+    `judge_configured` is requested to satisfy the judge prerequisite at
+    runtime; both metrics are deterministic and do not invoke the judge.
     """
     test_case = LLMTestCase(
-        input="evaluate info non-empty",
+        input="evaluate info presence + identification",
         actual_output=agent_output,
     )
-    assert_test(test_case, [InfoNonEmptyOrSentinel()])
+    assert_test(test_case, [InfoNonEmptyOrSentinel(), NoSentinelInfo()])

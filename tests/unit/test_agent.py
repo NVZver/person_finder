@@ -18,11 +18,6 @@ from langchain_core.messages import AIMessage
 from person_finder import agent as agent_module
 
 
-def test_find_person_stub_returns_not_found() -> None:
-    # The tool is wrapped by @tool, so call it through the runnable interface.
-    assert agent_module.findPerson.invoke({"name": "Ada Lovelace"}) == "<Not found>"
-
-
 def test_enrich_names_returns_final_message_content(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -63,8 +58,8 @@ def test_build_agent_passes_injected_model_through(
 
     assert out == "fake-agent"
     assert captured["model"] is sentinel
-    # Tool registration is part of the wiring contract — assert by identity.
-    assert agent_module.findPerson in captured["tools"]
+    # No external lookup tools — the LLM answers from training data.
+    assert captured["tools"] == []
     assert "JSON object" in captured["system_prompt"]
 
 
