@@ -1,130 +1,39 @@
-"""Fixtures and isolation override for the eval tier (`tests/eval/`).
+"""Fixtures for the eval tier.
 
-Four responsibilities, in execution order:
-
-1. **Capture real API keys at conftest import time** — runs BEFORE the
-   root `tests/conftest.py` autouse fixture deletes them. The snapshot
-   is later re-emitted into `os.environ` for every eval test, so the
-   eval tier sees the developer's actual shell env while the unit tier
-   stays jailed.
-2. **`real_keys` (function-scoped)** — exposes that snapshot as a typed
-   `RealKeys` NamedTuple. Function-scoped so tests can monkeypatch
-   `_REAL_KEYS` to exercise skip paths; production semantics are
-   unchanged (the constant is captured once at module import).
-3. **`judge_configured` (function-scoped)** — instantiates DeepEval's
-   `GeminiModel` for Gemini 2.0 Flash when the Google key is present;
-   skips at fixture level otherwise. The DeepEval import is inside the
-   fixture to keep conftest import side-effect-free.
-4. **`agent_under_test` (function-scoped)** — skip-then-import-then-skip
-   cascade. Returns the agent callable when prerequisites are met;
-   otherwise skips with a message naming the FIRST missing prerequisite.
-
-A small `PUBLIC_FIGURES` constant lives at module scope so live tests
-can parametrize over it without duplicating the roster.
+Tests skip cleanly when their required API keys are absent so empty-key dev
+paths stay green.
 """
 
 from __future__ import annotations
 
+import os
 from typing import Any, Callable
 
 import pytest
 
-from . import RealKeys, _capture_real_keys
-
-# Roster for the eval suite — fixed, well-known public figures so the
-# LLM has training data to draw on. NOT sourced from `fetch_user_names()`:
-# random-user names defeat the eval because the LLM can't know them.
 PUBLIC_FIGURES: list[str] = ["Albert Einstein", "Marie Curie"]
 
 
-# Captured ONCE, at conftest import time, before any autouse fixture
-# from the root `tests/conftest.py` has a chance to delete the keys.
-_REAL_KEYS: RealKeys = _capture_real_keys()
-
-
-def _restore_keys(monkeypatch: pytest.MonkeyPatch, keys: RealKeys) -> None:
-    """Re-emit captured keys via `monkeypatch.setenv` for one test.
-
-    Extracted as a module-level helper so tests can exercise the
-    re-set logic directly without re-entering the autouse machinery.
-    Empty / `None` values are skipped so a developer with neither key
-    in their shell sees the same env the unit tier sees (and downstream
-    fixtures skip cleanly with the documented reason).
-    """
-    if keys.groq_api_key:
-        monkeypatch.setenv("GROQ_API_KEY", keys.groq_api_key)
-    if keys.google_api_key:
-        monkeypatch.setenv("GOOGLE_API_KEY", keys.google_api_key)
-
-
-@pytest.fixture(autouse=True)
-def _restore_real_keys_for_eval(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Layer ON TOP of the root `_isolate_env` autouse fixture.
-
-    Pytest runs higher-scoped fixtures first; same-scope fixtures resolve
-    outer-conftest before inner-conftest. The root `_isolate_env`
-    deletes both keys for every test, then THIS function-scoped autouse
-    fixture re-emits whatever the host shell had at conftest import
-    time — but only for tests under `tests/eval/`. Unit isolation is
-    preserved.
-    """
-    _restore_keys(monkeypatch, _REAL_KEYS)
-
-
 @pytest.fixture
-def real_keys() -> RealKeys:
-    """Expose the captured-at-import host env keys as a typed snapshot.
+def judge_configured() -> Any:
+    """Skip-gate for the (future) Gemini judge.
 
-    Function-scoped so a test can `monkeypatch.setattr` `_REAL_KEYS` and
-    have the change propagate downstream (a session-scope cache would
-    bake in whichever value was captured first and ignore the patch).
-    The production semantics are unchanged — `_REAL_KEYS` is a module
-    constant set once at import, so every test reads the same snapshot
-    when nothing patches it.
+    The deterministic metrics in this suite don't actually call the judge —
+    this fixture exists so live tests fail-skip uniformly when the key is
+    missing, and so a Gemini-backed metric can be added later without
+    rewiring every test.
     """
-    return _REAL_KEYS
-
-
-@pytest.fixture
-def judge_configured(real_keys: RealKeys) -> Any:
-    """Skip-gate for the (future) Gemini 2.0 Flash judge.
-
-    When `GOOGLE_API_KEY` is absent, skips with a message naming the var.
-    When present, returns a sentinel string — the deterministic metrics
-    do not call the judge, so the gate's only job here is to surface the
-    prerequisite uniformly.
-
-    The Gemini SDK install (and `GeminiModel` instantiation) is deferred
-    to a follow-up live-judge integration. Until then, importing the SDK
-    inside this fixture would either fail (SDK not installed) or have no
-    consumer (no metric calls the judge), so we don't import it.
-    """
-    if not real_keys.google_api_key:
+    if not os.environ.get("GOOGLE_API_KEY"):
         pytest.skip("GOOGLE_API_KEY unset — DeepEval judge cannot be configured")
-    return "<judge deferred — Gemini SDK install pending live-judge integration>"
+    return "<judge deferred — Gemini SDK install pending>"
 
 
 @pytest.fixture
-def agent_under_test(real_keys: RealKeys) -> Callable[..., Any]:
-    """Return the agent callable, or skip with a precise reason.
-
-    Cascade:
-
-      1. No `GOOGLE_API_KEY` → skip naming it (judge can't be wired).
-      2. `person_finder.agent` not importable → skip naming the missing
-         module.
-      3. No `GROQ_API_KEY` → skip naming it (agent can't reach Groq).
-      4. Otherwise → return the agent's public callable
-         (`enrich_names` from `src/person_finder/agent.py`).
-    """
-    if not real_keys.google_api_key:
-        pytest.skip("GOOGLE_API_KEY unset — DeepEval judge cannot be configured")
-    try:
-        from person_finder.agent import enrich_names
-    except ImportError as exc:
-        pytest.skip(
-            f"person_finder.agent not importable ({exc})"
-        )
-    if not real_keys.groq_api_key:
+def agent_under_test() -> Callable[..., Any]:
+    """Return `enrich_names`, or skip naming the first missing prerequisite."""
+    if not os.environ.get("GOOGLE_API_KEY"):
+        pytest.skip("GOOGLE_API_KEY unset")
+    if not os.environ.get("GROQ_API_KEY"):
         pytest.skip("GROQ_API_KEY unset — agent cannot reach Groq")
+    from person_finder.agent import enrich_names
     return enrich_names

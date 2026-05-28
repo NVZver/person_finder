@@ -1,9 +1,4 @@
-"""Unit tests for the LangChain agent module.
-
-All external calls (Groq HTTP, the agent runtime) are mocked. These tests
-verify the wiring contract only — content quality and output validation
-are out of scope here.
-"""
+"""Unit tests for the agent module — all LLM/agent calls are mocked."""
 
 from __future__ import annotations
 
@@ -18,66 +13,41 @@ from langchain_core.messages import AIMessage
 from person_finder import agent as agent_module
 
 
-def test_enrich_names_returns_final_message_content(
+def test_enrich_names_invokes_agent_with_names_and_returns_content(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    canned_json = '{"data":[{"person":"Ada Lovelace","info":"<Not found>"}]}'
-
-    class _FakeAgent:
-        def __init__(self) -> None:
-            self.calls: list[dict[str, Any]] = []
-
-        def invoke(self, payload: dict[str, Any]) -> dict[str, Any]:
-            self.calls.append(payload)
-            return {"messages": [AIMessage(content=canned_json)]}
-
-    fake = _FakeAgent()
-    monkeypatch.setattr(agent_module, "create_agent", lambda **_: fake)
-
-    result = agent_module.enrich_names(["Ada Lovelace"], model="sentinel")
-
-    assert result == canned_json
-    assert fake.calls, "agent.invoke should have been called exactly once"
-    user_msg = fake.calls[0]["messages"][0]["content"]
-    assert "Ada Lovelace" in user_msg
-
-
-def test_build_agent_passes_injected_model_through(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+    canned_json = '{"data":[{"person":"Ada Lovelace","info":"Mathematician"}]}'
     captured: dict[str, Any] = {}
 
-    def _spy(**kwargs: Any) -> str:
-        captured.update(kwargs)
-        return "fake-agent"
+    class _FakeAgent:
+        def invoke(self, payload: dict[str, Any]) -> dict[str, Any]:
+            captured["payload"] = payload
+            return {"messages": [AIMessage(content=canned_json)]}
 
-    monkeypatch.setattr(agent_module, "create_agent", _spy)
+    def _spy_create_agent(**kwargs: Any) -> _FakeAgent:
+        captured["create_agent_kwargs"] = kwargs
+        return _FakeAgent()
 
-    sentinel = object()
-    out = agent_module.build_agent(model=sentinel)
+    monkeypatch.setattr(agent_module, "create_agent", _spy_create_agent)
 
-    assert out == "fake-agent"
-    assert captured["model"] is sentinel
-    # No external lookup tools — the LLM answers from training data.
-    assert captured["tools"] == []
-    assert "JSON object" in captured["system_prompt"]
+    result = agent_module.enrich_names(["Ada Lovelace"], model="sentinel-model")
+
+    assert result == canned_json
+    assert captured["create_agent_kwargs"]["model"] == "sentinel-model"
+    assert captured["create_agent_kwargs"]["tools"] == []
+    assert "JSON object" in captured["create_agent_kwargs"]["system_prompt"]
+    assert "Ada Lovelace" in captured["payload"]["messages"][0]["content"]
 
 
-def test_build_agent_default_model_requires_groq_api_key() -> None:
-    # conftest fixture strips GROQ_API_KEY; build_agent must raise at construction.
+def test_enrich_names_without_groq_key_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GOOGLE_API_KEY", "google-test")
     from pydantic import ValidationError
 
     with pytest.raises(ValidationError):
-        agent_module.build_agent()
+        agent_module.enrich_names(["Ada Lovelace"])
 
 
-def test_repair_invokes_model_and_returns_content_string() -> None:
-    """`repair(broken, err, *, model=<fake>)` returns the model's content verbatim.
-
-    The agent module wraps a single LLM call (no ReAct loop — repair is
-    one-shot JSON fixing). The model collaborator is faked; no real Groq
-    call.
-    """
+def test_repair_invokes_model_and_returns_content() -> None:
     canned = '{"data":[{"person":"Ada","info":"<Not found>"}]}'
 
     class _FakeMsg:
@@ -96,30 +66,14 @@ def test_repair_invokes_model_and_returns_content_string() -> None:
     out = agent_module.repair("broken raw", "JSON parse error", model=fake)
 
     assert out == canned
-    assert fake.calls, "model.invoke must be called exactly once"
-    # The repair prompt should carry the broken raw and the error description
-    # verbatim so the LLM can target the fix.
-    sent = fake.calls[0]
-    flat = str(sent)
+    flat = str(fake.calls[0])
     assert "broken raw" in flat
     assert "JSON parse error" in flat
 
 
 def test_import_has_no_side_effects(tmp_path: Path) -> None:
-    """`import person_finder.agent` must not read env, hit disk, or raise.
-
-    Run in a fresh subprocess because by the time this test executes, the
-    module is already cached in ``sys.modules`` from earlier tests — only a
-    fresh interpreter honestly exercises the first-import code path. Strip
-    GROQ_API_KEY/GOOGLE_API_KEY from the child env and ``chdir`` to an empty
-    ``tmp_path`` so there's no ``.env`` to discover.
-    """
-    # Minimal env: PATH for binary resolution, HOME for uv's cache dir.
-    # GROQ_API_KEY and GOOGLE_API_KEY are intentionally omitted.
-    child_env = {
-        "PATH": os.environ["PATH"],
-        "HOME": os.environ["HOME"],
-    }
+    """`import person_finder.agent` must not read env, hit disk, or raise."""
+    child_env = {"PATH": os.environ["PATH"], "HOME": os.environ["HOME"]}
 
     result = subprocess.run(
         ["uv", "run", "python", "-c", "import person_finder.agent"],
@@ -130,12 +84,5 @@ def test_import_has_no_side_effects(tmp_path: Path) -> None:
         check=False,
     )
 
-    assert result.returncode == 0, (
-        f"import raised in fresh interpreter.\n"
-        f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
-    )
-    # `uv run` may emit informational lines to stderr (e.g. sync messages);
-    # what we forbid is an exception, so assert no traceback bubbled up.
-    assert "Traceback" not in result.stderr, (
-        f"import produced a traceback in fresh interpreter.\nstderr:\n{result.stderr}"
-    )
+    assert result.returncode == 0, f"import raised:\n{result.stderr}"
+    assert "Traceback" not in result.stderr
