@@ -11,10 +11,12 @@ Source: [README.md](../README.md), [ARCHITECTURE.md](../ARCHITECTURE.md).
 | Module | Spec | Status |
 |--------|------|--------|
 | scaffolding | [modules/scaffolding/spec.md](modules/scaffolding/spec.md) | active |
+| users | [modules/users/spec.md](modules/users/spec.md) | active |
 | agent | [modules/agent/spec.md](modules/agent/spec.md) | active |
 | validation | [modules/validation/spec.md](modules/validation/spec.md) | active |
+| eval | [modules/eval/spec.md](modules/eval/spec.md) | active |
 
-Future modules (candidates from [ARCHITECTURE.md](../ARCHITECTURE.md) §Layers, to be confirmed at each feature): `fetch` (random-user fetch + filter + name mapping, Epic 2), `render` (top-level entrypoint + error surfacing, Epic 5), `eval` (DeepEval LLM-judge suite, Epic 6).
+Future modules (candidates from [ARCHITECTURE.md](../ARCHITECTURE.md) §Layers, to be confirmed at each feature): `render` (top-level entrypoint + error surfacing, Epic 5).
 
 ## Cross-Module Contracts
 

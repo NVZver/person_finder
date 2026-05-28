@@ -29,3 +29,16 @@ modules:
     artifact_paths:
       - /src/person_finder/validation.py
       - /tests/unit/test_validation.py
+  eval:
+    spec: /specs/modules/eval/spec.md
+    artifact_paths:
+      - /tests/eval/__init__.py
+      - /tests/eval/conftest.py
+      - /tests/eval/metrics.py
+      - /tests/eval/stub_agents.py
+      - /tests/eval/test_fixtures.py
+      - /tests/eval/test_metric_failure_modes.py
+      - /tests/eval/test_valid_json.py
+      - /tests/eval/test_person_matches.py
+      - /tests/eval/test_info_present.py
+      - /specs/modules/eval/spec.md
