@@ -21,6 +21,7 @@ from deepeval.test_case import LLMTestCase
 
 from .conftest import PUBLIC_FIGURES
 from .metrics import (
+    InfoHasSourcePrefix,
     InfoNonEmptyOrSentinel,
     NoSentinelInfo,
     PersonNamesMatchInput,
@@ -31,6 +32,7 @@ from .stub_agents import (
     malformed_json_payload,
     sentinel_payload,
     unknown_person_payload,
+    unprefixed_info_payload,
     valid_payload,
 )
 
@@ -43,6 +45,7 @@ REASON_JSON_PARSE_ERROR = "JSON parse error"
 REASON_UNKNOWN_PERSON = "unknown person 'Foo Bar'"
 REASON_EMPTY_INFO_AT_INDEX = "empty info at index 1"
 REASON_SENTINEL_PRESENT = "sentinel '<Not found>'"
+REASON_MISSING_PREFIX = "data[1].info missing source prefix"
 
 
 # === Failure-mode tests ===============================================
@@ -91,6 +94,21 @@ def test_info_non_empty_or_sentinel_rejects_empty_info() -> None:
     assert metric.success is False
     assert metric.score == 0.0
     assert REASON_EMPTY_INFO_AT_INDEX in metric.reason
+
+
+def test_info_has_source_prefix_rejects_unprefixed_info() -> None:
+    """Missing prefix at index 1 → success=False; reason names the index."""
+    test_case = LLMTestCase(
+        input="evaluate source prefix",
+        actual_output=unprefixed_info_payload(PUBLIC_FIGURES),
+    )
+
+    metric = InfoHasSourcePrefix()
+    metric.measure(test_case)
+
+    assert metric.success is False
+    assert metric.score == 0.0
+    assert REASON_MISSING_PREFIX in metric.reason
 
 
 def test_no_sentinel_info_rejects_all_sentinel_payload() -> None:
@@ -166,6 +184,34 @@ def test_no_sentinel_info_accepts_valid_payload() -> None:
     )
 
     metric = NoSentinelInfo()
+    metric.measure(test_case)
+
+    assert metric.success is True
+    assert metric.score == 1.0
+
+
+def test_info_has_source_prefix_accepts_prefixed_payload() -> None:
+    """Every item carries `[source: wiki]` prefix → success=True; score=1.0."""
+    test_case = LLMTestCase(
+        input="evaluate source prefix",
+        actual_output=valid_payload(PUBLIC_FIGURES),
+    )
+
+    metric = InfoHasSourcePrefix()
+    metric.measure(test_case)
+
+    assert metric.success is True
+    assert metric.score == 1.0
+
+
+def test_info_has_source_prefix_accepts_sentinel_payload() -> None:
+    """All-sentinel payload is valid: sentinel needs no prefix."""
+    test_case = LLMTestCase(
+        input="evaluate source prefix",
+        actual_output=sentinel_payload(PUBLIC_FIGURES),
+    )
+
+    metric = InfoHasSourcePrefix()
     metric.measure(test_case)
 
     assert metric.success is True

@@ -9,8 +9,10 @@ authors = [{ name = "person_finder contributors" }]
 
 dependencies = [
     "langchain>=1,<2",
+    "langchain-community>=0.4.2",
     "langchain-groq>=1,<2",
     "python-dotenv>=1,<2",
+    "wikipedia>=1.4.0",
 ]
 
 [build-system]

@@ -2,15 +2,20 @@
 
 A small Python CLI for the NN GenAI Engineer assignment. It fetches 20 random
 users from [randomuser.me](https://randomuser.me), filters out anyone born
-after the year 2000, asks a Groq-hosted `llama-3.3-70b-versatile` model to
-identify each remaining person from its training knowledge, validates the
-returned JSON (with a bounded repair-retry loop), and prints the result to
+after the year 2000, then runs a LangChain agent — Groq-hosted
+`llama-3.3-70b-versatile` plus a `wikipedia_search` tool — that looks each
+remaining person up on Wikipedia and summarises them from the article. The
+final JSON is validated (with a bounded repair-retry loop) and printed to
 stdout.
 
 ## Pipeline
 
 ```
-randomuser.me  ->  filter by DOB year  ->  Groq llama-3.3-70b
+randomuser.me  ->  filter by DOB year  ->  LangChain agent (Groq llama-3.3-70b)
+                                              |          ^
+                                              |          |  per-name lookup
+                                              v          |
+                                      wikipedia_search tool
                                               |
                                               v
                               validate JSON  +  repair-retry loop
@@ -28,9 +33,18 @@ no traceback leaked to the user.
 
 A few decisions worth calling out:
 
-- **Single batched LLM call, not one-per-name.** Twenty names go in one
-  prompt; one structured response comes back. Per-name calls would multiply
-  the system-prompt overhead 20× for identical work.
+- **One agent, one tool: `wikipedia_search`, with a fallback ladder.** Per
+  name, the agent (1) calls `wikipedia_search` and summarises from the
+  article when it matches; (2) falls back to its own training knowledge
+  when Wikipedia returns nothing useful; (3) emits `<Not found>` only when
+  both sources fail. Wikipedia is the grounded primary source — the lever
+  that makes the workflow hallucination-resistant — while the LLM
+  fallback preserves recall on figures whose articles are missing,
+  ambiguous, or named differently than the input.
+- **Single batched agent invocation.** All filtered names go to the agent
+  in one user message; the agent issues N `wikipedia_search` tool calls
+  (one per name) and returns one structured JSON envelope. Per-name agent
+  invocations would multiply the system-prompt overhead for identical work.
 - **`temperature=0`.** Identical input → identical output. Required for the
   deterministic eval metrics in `tests/eval/` to function as a meaningful
   regression guard.
@@ -42,13 +56,14 @@ A few decisions worth calling out:
   collides with "model returned nothing"; null forces every consumer to
   handle the optional. A documented sentinel prints cleanly in JSON and is
   grep-friendly.
-- **Refuse to hallucinate.** The prompt biases toward identifying
-  plausibly-real names but explicitly restricts `<Not found>` to clearly
-  random private individuals. Trade-off chosen deliberately: for a regulated
+- **Refuse to hallucinate.** The prompt forbids embellishment beyond what
+  the active source (Wikipedia first, then training knowledge) actually
+  supports, and reserves `<Not found>` for the case where neither source
+  knows the person. Trade-off chosen deliberately: for a regulated
   insurer, a fabricated biography is a worse failure than an honest empty.
-  Most `randomuser.me` rows correctly come back as `<Not found>` because the
-  names are fictional; iconic public figures are identified reliably (pinned
-  by `tests/eval/test_live_agent.py`).
+  Most `randomuser.me` rows still come back as `<Not found>` because the
+  names are fictional; iconic public figures are identified reliably
+  (pinned by `tests/eval/test_live_agent.py`).
 - **CLI surface, not HTTP.** Scope-appropriate. `enrich_names()` is a pure
   function and would wrap into a FastAPI endpoint in ~30 lines if production
   needed it.
@@ -84,11 +99,15 @@ most `info` fields will be `<Not found>`):
 ```json
 {
   "data": [
-    {"person": "Adam Smith", "info": "<Not found>"},
+    {"person": "Adam Smith", "info": "[source: wiki] Scottish economist and moral philosopher (1723-1790), best known for The Wealth of Nations."},
     {"person": "Cara Lopez", "info": "<Not found>"}
   ]
 }
 ```
+
+The `[source: wiki]` / `[source: llm]` prefix tags which step of the fallback
+ladder produced the summary — Wikipedia article first, model training
+knowledge second. `<Not found>` carries no prefix.
 
 ## Tests
 

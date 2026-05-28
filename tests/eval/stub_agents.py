@@ -12,12 +12,13 @@ mode be exercised in microseconds.
 Each function returns a `str` (the JSON-shaped agent reply, NOT a parsed
 dict, matching the contract surface the metrics consume).
 
-Five generators:
+Six generators:
 
-  - `malformed_json_payload()`     — drives `ValidJsonStructure` to fail.
+  - `malformed_json_payload()`      — drives `ValidJsonStructure` to fail.
   - `unknown_person_payload(names)` — drives `PersonNamesMatchInput`.
   - `empty_info_payload(names)`     — drives `InfoNonEmptyOrSentinel`.
-  - `valid_payload(names)`          — happy path; passes all three.
+  - `unprefixed_info_payload(names)` — drives `InfoHasSourcePrefix`.
+  - `valid_payload(names)`          — happy path; passes every metric.
   - `sentinel_payload(names)`       — happy path with `<Not found>`.
 """
 
@@ -27,6 +28,12 @@ import json
 
 # The fallback string the agent emits when no info is available.
 _SENTINEL = "<Not found>"
+
+# Mirror of the contract pinned in `tests/eval/metrics.py` — kept here as
+# a local literal so the stub file remains self-contained for canned-data
+# generation. Drift between this string and `metrics.PREFIX_WIKI` is
+# caught by the eval metric tests in `test_metric_failure_modes.py`.
+_PREFIX_WIKI = "[source: wiki] "
 
 # Name that is intentionally NOT in any plausible `PUBLIC_FIGURES` roster
 # — used by `unknown_person_payload`. The substring "'Foo Bar'" is part
@@ -85,11 +92,42 @@ def empty_info_payload(input_names: list[str]) -> str:
 
 
 def valid_payload(input_names: list[str]) -> str:
-    """Return a fully-valid JSON payload: all three metrics return `success=True`.
+    """Return a fully-valid JSON payload: every metric returns `success=True`.
 
-    Each item has `person` in `input_names` and a non-empty `info` string.
+    Each item has `person` in `input_names` and a `[source: wiki]`-prefixed
+    `info` string — matching the production agent's contract so this stub
+    passes `InfoHasSourcePrefix` as well as the older shape/membership
+    checks.
     """
-    items = [{"person": name, "info": f"stub info for {name}"} for name in input_names]
+    items = [
+        {"person": name, "info": f"{_PREFIX_WIKI}stub info for {name}"}
+        for name in input_names
+    ]
+    return json.dumps({"data": items})
+
+
+def unprefixed_info_payload(input_names: list[str]) -> str:
+    """Return a payload where index 1's `info` is missing the source prefix.
+
+    Index 0 carries the valid `[source: wiki]` prefix so the metric's
+    per-item loop must reach index 1 before reporting — proving the
+    reason names the *specific* offending index. Falls back gracefully
+    on rosters of fewer than 2 names.
+    """
+    if len(input_names) < 2:
+        anchor = input_names[0] if input_names else "Anonymous"
+        return json.dumps(
+            {
+                "data": [
+                    {"person": anchor, "info": f"{_PREFIX_WIKI}prefixed info"},
+                    {"person": anchor, "info": "missing-prefix info"},
+                ]
+            }
+        )
+    items = [
+        {"person": input_names[0], "info": f"{_PREFIX_WIKI}prefixed info"},
+        {"person": input_names[1], "info": "missing-prefix info"},
+    ]
     return json.dumps({"data": items})
 
 

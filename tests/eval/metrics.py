@@ -40,6 +40,12 @@ from deepeval.test_case import LLMTestCase
 # `stub_agents.py` cannot drift.
 SENTINEL_NOT_FOUND = "<Not found>"
 
+# The two valid source-prefix forms the agent must emit on non-sentinel
+# `info`. Trailing space is part of the contract — it separates the prefix
+# from the summary text.
+PREFIX_WIKI = "[source: wiki] "
+PREFIX_LLM = "[source: llm] "
+
 
 def _parse_payload(actual_output: str) -> tuple[Any, str | None]:
     """Parse the agent's reply and validate its top-level + per-item shape.
@@ -227,6 +233,64 @@ class InfoNonEmptyOrSentinel(BaseMetric):
     @property
     def __name__(self) -> str:
         return "Info Non-Empty Or Sentinel"
+
+
+class InfoHasSourcePrefix(BaseMetric):
+    """Deterministic check: every `data[].info` is the sentinel OR carries a
+    valid source prefix.
+
+    Valid forms (exactly):
+      - ``"<Not found>"``                  — the sentinel; no prefix.
+      - ``"[source: wiki] ..."``           — Wikipedia-grounded answer.
+      - ``"[source: llm] ..."``            — LLM-knowledge fallback.
+
+    The prefix is the agent's provenance signal: consumers can see whether
+    each summary is article-grounded or memory-grounded without re-running
+    the agent. Any other form (missing prefix, different casing, dropped
+    space) is a contract violation.
+    """
+
+    threshold: float = 1.0
+    async_mode: bool = False
+
+    def __init__(self, threshold: float = 1.0) -> None:
+        self.threshold = threshold
+
+    def measure(self, test_case: LLMTestCase) -> float:
+        data, reason = _parse_payload(test_case.actual_output)
+        if reason is not None:
+            _set_failure(self, reason)
+            return self.score
+
+        for i, item in enumerate(data):
+            info = item["info"]
+            if info == SENTINEL_NOT_FOUND:
+                continue
+            if info.startswith(PREFIX_WIKI) or info.startswith(PREFIX_LLM):
+                continue
+            _set_failure(
+                self,
+                f"data[{i}].info missing source prefix — got "
+                f"{info[:40]!r}; expected sentinel or one of "
+                f"'{PREFIX_WIKI}', '{PREFIX_LLM}'",
+            )
+            return self.score
+
+        _set_success(
+            self,
+            f"all {len(data)} items carry a valid source prefix or sentinel",
+        )
+        return self.score
+
+    async def a_measure(self, test_case: LLMTestCase, *args: Any, **kwargs: Any) -> float:
+        return self.measure(test_case)
+
+    def is_successful(self) -> bool:
+        return bool(self.success)
+
+    @property
+    def __name__(self) -> str:
+        return "Info Has Source Prefix"
 
 
 class NoSentinelInfo(BaseMetric):

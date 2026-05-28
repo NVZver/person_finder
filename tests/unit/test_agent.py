@@ -52,6 +52,47 @@ def test_enrich_names_returns_parsed_dict_on_first_try(
     assert "Ada Lovelace" in stub.invocations[0][0]["content"]
 
 
+def test_enrich_names_wires_wikipedia_search_tool(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The agent must be constructed with the `wikipedia_search` tool — the
+    grounding mechanism that makes the workflow non-hallucinating."""
+    stub = _StubAgent(['{"data":[]}'])
+    captured = _patch_create_agent(monkeypatch, stub)
+
+    agent_module.enrich_names(["Ada Lovelace"], model="sentinel")
+
+    tools = captured["tools"]
+    assert [t.name for t in tools] == ["wikipedia_search"]
+
+
+def test_system_prompt_contains_anti_conservatism_guards() -> None:
+    """Pin the prompt strings that keep the model from over-emitting `<Not found>`.
+
+    The defence against an over-conservative model rests on three explicit
+    guards in the system prompt:
+
+      - **Training-knowledge fallback (step 3).** When Wikipedia misses,
+        the model is told to fall back to its own knowledge before giving
+        up. Pinned by the literal "training knowledge".
+      - **Narrow sentinel scoping (step 4).** The sentinel is only allowed
+        when BOTH sources fail — the leading "Only if" enforces the
+        conjunction.
+      - **Sentinel literal.** The exact string `<Not found>` must appear
+        as the documented sentinel value.
+
+    If a prompt edit deletes any of these, the live eval
+    (`tests/eval/test_live_agent.py::NoSentinelInfo`) would eventually
+    catch the regression — but that costs a Groq call and only runs when
+    `GROQ_API_KEY` is set. This test catches the same class of bug at
+    unit-test speed.
+    """
+    prompt = agent_module.SYSTEM_PROMPT
+    assert "training knowledge" in prompt, "step 3 fallback guard missing"
+    assert "Only if" in prompt, "step 4 narrow-scoping guard missing"
+    assert "<Not found>" in prompt, "sentinel literal missing"
+
+
 def test_enrich_names_retries_with_error_message_on_bad_json(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
