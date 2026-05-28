@@ -4,7 +4,7 @@
 
 | Epic | Feature | Priority | Status | Notes |
 |------|---------|----------|--------|-------|
-| 1 | Project scaffolding & env loading | MVP | Backlog | Create `pyproject.toml`, `Makefile`, `tests/{unit,eval,e2e}/` layout; load `GROQ_API_KEY` + `GOOGLE_API_KEY` from env. Pitch: [ARCHITECTURE.md](../ARCHITECTURE.md) §Scripts, §Env vars. No dependencies. |
+| 1 | Project scaffolding & env loading | MVP | Done | Create `pyproject.toml`, `Makefile`, `tests/{unit,eval,e2e}/` layout; load `GROQ_API_KEY` + `GOOGLE_API_KEY` from env. Pitch: [ARCHITECTURE.md](../ARCHITECTURE.md) §Scripts, §Env vars. No dependencies. Shipped in `8afc084`. |
 | 2 | Random-user fetch + filter + name mapping | MVP | Backlog | Fetch 20 users from `randomuser.me/api`, drop born-after-2000, return `list[str]` of `"First Last"`. Pitch: [ARCHITECTURE.md](../ARCHITECTURE.md) §Layers/1. Depends on Epic 1. |
 | 3 | LangChain ReAct agent + `findPerson` tool | MVP | Backlog | Agent accepts `list[str]`, runs ReAct + CoT loop, calls `findPerson(name)` per person, returns raw JSON-shaped string (no validation). Pitch: [ARCHITECTURE.md](../ARCHITECTURE.md) §Layers/2 lines 26-40. Depends on Epic 1. |
 | 4 | `validate_output` + repair retry loop | MVP | Backlog | Validate JSON / `data` key / `person:str` + `info:str`; on failure re-prompt LLM with error + broken JSON, max 3 retries, then raise `Error("Could not respond")`. Pitch: [ARCHITECTURE.md](../ARCHITECTURE.md) §Layers/2 lines 41-48. Depends on Epic 3. |
