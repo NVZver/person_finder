@@ -1,0 +1,33 @@
+[project]
+name = "person_finder"
+version = "0.1.0"
+description = "Fetches random users, enriches each via a LangChain ReAct agent, returns validated JSON."
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+license = { file = "LICENSE" }
+authors = [{ name = "person_finder contributors" }]
+
+# Runtime dependencies. LangChain / Groq / DeepEval are intentionally NOT added
+# in this epic; later epics own those.
+dependencies = [
+    "pydantic-settings>=2.6,<3",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/person_finder"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8,<9",
+]
+
+[tool.pytest.ini_options]
+# `src/` layout: tell pytest where the importable package lives without
+# needing an editable install for collection.
+pythonpath = ["src"]
+testpaths = ["tests/unit", "tests/eval", "tests/e2e"]
+addopts = "-ra"

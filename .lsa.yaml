@@ -1,0 +1,16 @@
+constitution: /ARCHITECTURE.md
+specs_root: /specs/
+mode: code
+modules:
+  scaffolding:
+    spec: /specs/modules/scaffolding/spec.md
+    artifact_paths:
+      - /pyproject.toml
+      - /uv.lock
+      - /Makefile
+      - /.env.example
+      - /src/person_finder/__init__.py
+      - /src/person_finder/config.py
+      - /tests/conftest.py
+      - /tests/unit/__init__.py
+      - /tests/unit/test_config.py
