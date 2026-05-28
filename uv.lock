@@ -359,6 +359,7 @@ name = "person-finder"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "httpx" },
     { name = "langchain" },
     { name = "langchain-groq" },
     { name = "pydantic-settings" },
@@ -371,6 +372,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "httpx", specifier = ">=0.27,<1" },
     { name = "langchain", specifier = ">=1,<2" },
     { name = "langchain-groq", specifier = ">=1,<2" },
     { name = "pydantic-settings", specifier = ">=2.6,<3" },
