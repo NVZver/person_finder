@@ -7,8 +7,11 @@ requires-python = ">=3.12,<3.13"
 license = { file = "LICENSE" }
 authors = [{ name = "person_finder contributors" }]
 
-# Runtime dependencies. LangChain / Groq / DeepEval are intentionally NOT added
-# in this epic; later epics own those.
+# Runtime dependencies. LangChain / Groq are intentionally NOT added in this
+# epic; later epics own those. DeepEval is dev-only (eval tier is test
+# infrastructure, not application runtime) and lives under
+# `[dependency-groups] dev` below. The Gemini judge SDK is deferred to the
+# follow-up live-judge epic — see specs/modules/eval/spec.md NF3.
 dependencies = [
     "pydantic-settings>=2.6,<3",
 ]
@@ -22,6 +25,12 @@ packages = ["src/person_finder"]
 
 [dependency-groups]
 dev = [
+    # Eval tier (tests/eval/). Pinned to the major actually installed; bump
+    # the upper bound deliberately when DeepEval ships a new major. The
+    # Gemini judge SDK is NOT installed here — the live judge path is a
+    # follow-up epic and will pick the SDK at that point. The deterministic
+    # metrics (the only thing this epic exercises) do not call the judge.
+    "deepeval>=4.0,<5",
     "pytest>=8,<9",
 ]
 

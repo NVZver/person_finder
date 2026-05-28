@@ -11,8 +11,9 @@ Source: [README.md](../README.md), [ARCHITECTURE.md](../ARCHITECTURE.md).
 | Module | Spec | Status |
 |--------|------|--------|
 | scaffolding | [modules/scaffolding/spec.md](modules/scaffolding/spec.md) | active |
+| eval | [modules/eval/spec.md](modules/eval/spec.md) | active |
 
-Future modules (candidates from [ARCHITECTURE.md](../ARCHITECTURE.md) §Layers, to be confirmed at each feature): `fetch` (random-user fetch + filter + name mapping, Epic 2), `agent` (LangChain ReAct + `findPerson` tool, Epic 3), `validation` (`validate_output` + repair retry loop, Epic 4), `render` (top-level entrypoint + error surfacing, Epic 5), `eval` (DeepEval LLM-judge suite, Epic 6).
+Future modules (candidates from [ARCHITECTURE.md](../ARCHITECTURE.md) §Layers, to be confirmed at each feature): `fetch` (random-user fetch + filter + name mapping, Epic 2), `agent` (LangChain ReAct + `findPerson` tool, Epic 3), `validation` (`validate_output` + repair retry loop, Epic 4), `render` (top-level entrypoint + error surfacing, Epic 5).
 
 ## Cross-Module Contracts
 
