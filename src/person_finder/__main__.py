@@ -1,8 +1,4 @@
-"""CLI shim: enables `python -m person_finder`.
-
-All logic lives in :mod:`person_finder.render`; this file is a one-liner so
-the testable surface (and the orchestration) stays in `render.py`.
-"""
+"""CLI shim: enables `python -m person_finder`."""
 
 from __future__ import annotations
 

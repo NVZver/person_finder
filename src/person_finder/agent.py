@@ -1,21 +1,12 @@
 """Identify each name and research their best work, source-tagged per row.
 
-Two stages run per name:
-
-  Ex4 — identify (deterministic): try ``wikipedia.summary(name)``; on a hit ask
-  the LLM to compress it (``source="wiki"``); on a miss ask the LLM to identify
-  from training knowledge (``source="llm"``) or emit ``UNKNOWN`` → the null
-  pair. The LLM never decides the ``source`` field or whether ``info`` is
-  ``null`` — those are derived from which retrieval step succeeded.
-
-  Ex5 — best work (agentic): for each *identified* person, a tool-calling agent
-  (:mod:`person_finder.best_work_agent`) researches their single most notable
-  work via the ``wikipedia_lookup`` tool. Unidentified people skip this stage
-  (``best_work=None``) — there is no person to research.
-
-Each row: ``{person, info, source, best_work}``. The identify step's LLM calls
-are one-shot text-in/text-out (no JSON envelope to parse); the best-work agent
-owns its own tool-calling loop.
+Per name: try ``wikipedia.summary(name)``; on a hit the LLM compresses it
+(``source="wiki"``), on a miss the LLM identifies from training knowledge
+(``source="llm"``) or emits ``UNKNOWN`` → the null pair. ``source`` and
+``info`` nullability are derived from which retrieval step succeeded, never
+chosen by the LLM. Each identified person is then passed to the best-work
+agent (:mod:`person_finder.best_work_agent`). Each row is
+``{person, info, source, best_work}``.
 """
 
 from __future__ import annotations
@@ -30,8 +21,6 @@ from person_finder.config import groq_api_key
 from person_finder.text import UNKNOWN_SENTINEL, is_unknown
 from person_finder.tools import fetch_wiki_summary
 
-# Re-exported for backwards compatibility with callers/tests that reference
-# `agent.UNKNOWN_SENTINEL`.
 __all__ = ["enrich_names", "UNKNOWN_SENTINEL"]
 
 _WIKI_SENTENCES = 3
@@ -64,10 +53,8 @@ respond with exactly the single word UNKNOWN (no punctuation, no other text).
 Return ONLY the 1-2 sentence summary OR the word UNKNOWN."""
 
 
-# Identification runs on the larger model: the 8B instant model fabricates
-# confident biographies for non-famous names (the precision guard in
-# tests/eval/test_precision.py caught it inventing bios for 4/4 fictional
-# people). 70B refuses far more reliably. Cost is bounded by the 5-person cap.
+# The 70B model refuses non-famous names reliably; the 8B instant model
+# fabricates confident biographies for them.
 IDENTIFY_MODEL = "llama-3.3-70b-versatile"
 
 
@@ -76,10 +63,8 @@ def _model() -> ChatGroq:
         model=IDENTIFY_MODEL,
         api_key=groq_api_key(),
         temperature=0,
-        # A small retry budget honors Groq's short Retry-After (~2s) so the
-        # rate-limited 70B model rides out transient throttling instead of
-        # aborting the run. Persistent errors still surface fast to render.py's
-        # APIStatusError handler — well short of the SDK default's ~30s hang.
+        # Honor Groq's short Retry-After on transient throttling; persistent
+        # errors still surface fast to render.py's APIStatusError handler.
         max_retries=2,
     )
 
@@ -120,11 +105,8 @@ def _identify(llm: Any, name: str) -> tuple[str | None, str | None]:
         summary = _summarize_article(llm, article)
         if summary is not None:
             return summary, "wiki"
-        # Wikipedia's best match wasn't an identifiable person (e.g. a
-        # disambiguation page reached via auto_suggest). Do NOT fall through
-        # to the memory path — that is the hallucination-prone route, and if
-        # Wikipedia has no clean match the model's training memory will not do
-        # better. Return the null pair instead.
+        # Article wasn't an identifiable person (e.g. a disambiguation page);
+        # don't fall through to the memory path — return the null pair.
         return None, None
 
     identification = _identify_from_memory(llm, name)

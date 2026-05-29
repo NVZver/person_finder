@@ -1,14 +1,7 @@
 """Wikipedia access: a plain fetch helper and the LangChain tool wrapping it.
 
-Two consumers:
-
-  - :mod:`person_finder.agent` calls :func:`fetch_wiki_summary` directly in the
-    deterministic identify step (Ex4).
-  - :mod:`person_finder.best_work_agent` binds :data:`wikipedia_lookup` as a
-    tool the agent decides to call when researching a person's best work (Ex5).
-
-Both share one module so the Wikipedia user-agent and warning-filter setup
-lives in exactly one place.
+:func:`fetch_wiki_summary` is called directly by the identify step;
+:data:`wikipedia_lookup` is the tool the best-work agent calls.
 """
 
 from __future__ import annotations
@@ -19,15 +12,13 @@ import wikipedia
 from bs4 import GuessedAtParserWarning
 from langchain.tools import tool
 
-# Wikipedia's robot policy rejects requests without a descriptive User-Agent;
-# the python-`wikipedia` library's default UA gets a 403.
+# Wikipedia rejects requests without a descriptive User-Agent (403 otherwise).
 wikipedia.set_user_agent(
     "person_finder/0.1 (NN GenAI assessment; +https://randomuser.me)"
 )
 
-# The `wikipedia` library calls `BeautifulSoup(html)` without an explicit
-# parser, which prints `GuessedAtParserWarning` on every search. Upstream
-# noise (goldsmith/Wikipedia#207) — silence it so CLI stderr stays clean.
+# The `wikipedia` library triggers GuessedAtParserWarning on every search;
+# silence it to keep CLI stderr clean.
 warnings.filterwarnings("ignore", category=GuessedAtParserWarning)
 
 

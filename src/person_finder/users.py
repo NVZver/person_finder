@@ -1,7 +1,6 @@
-"""Fetch 20 random users from randomuser.me; keep those born on or before 2000.
+"""Fetch random users from randomuser.me; keep those born on or before 2000.
 
-The assignment asks us to cap downstream LLM work at 5 people to stay under
-free-tier rate limits, so the returned list is truncated to `MAX_PEOPLE`.
+The returned list is truncated to `MAX_PEOPLE` to bound downstream LLM work.
 """
 
 from __future__ import annotations
@@ -14,7 +13,6 @@ from urllib.request import urlopen
 RANDOMUSER_URL = "https://randomuser.me/api/?results=20"
 _BIRTH_YEAR_CUTOFF = 2000
 
-# Per the assignment: keep an eye on free-tier rate limits — stick to 5 people.
 MAX_PEOPLE = 5
 
 
@@ -23,11 +21,7 @@ class UserFetchError(RuntimeError):
 
 
 def fetch_user_names(*, limit: int = MAX_PEOPLE) -> list[str]:
-    """Return up to `limit` `"First Last"` names with DOB year <= 2000, in API order.
-
-    Fetches 20 records, drops anyone born after 2000, then truncates to `limit`
-    (default `MAX_PEOPLE`) so the downstream LLM/agent work stays bounded.
-    """
+    """Return up to `limit` `"First Last"` names with DOB year <= 2000, in API order."""
     try:
         with urlopen(RANDOMUSER_URL, timeout=10.0) as response:  # noqa: S310 — fixed URL
             payload = json.load(response)

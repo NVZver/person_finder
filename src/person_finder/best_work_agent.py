@@ -1,13 +1,9 @@
-"""Ex5: a LangChain agent that researches a person's most notable work.
+"""A LangChain tool-calling agent that researches a person's most notable work.
 
-Unlike the deterministic identify step in :mod:`person_finder.agent`, this is a
-genuine tool-calling agent: it is given the ``wikipedia_lookup`` tool and
-*decides* to call it to ground its answer, then reports the person's single
-most notable work in 1-2 sentences.
-
-The agent is intentionally narrow — one tool, one job — so it stays cheap and
-testable. :func:`research_best_work` accepts an injected ``agent`` so unit
-tests can drive the extraction logic with a fake graph and no network.
+Given the ``wikipedia_lookup`` tool, the agent grounds its answer in the
+article and reports the person's single most notable work in 1-2 sentences.
+:func:`research_best_work` accepts an injected ``agent`` so tests can run it
+offline.
 """
 
 from __future__ import annotations
@@ -22,10 +18,7 @@ from person_finder.config import groq_api_key
 from person_finder.text import is_unknown
 from person_finder.tools import wikipedia_lookup
 
-# A tool-capable model: `create_agent` drives the tool-calling protocol, which
-# the smaller 8B instant model emits unreliably. The agent runs at most once
-# per identified person (and the run is capped at 5 people), so the larger
-# model's cost is bounded.
+# Tool-capable model: the 8B instant model emits tool calls unreliably.
 AGENT_MODEL = "llama-3.3-70b-versatile"
 
 SYSTEM_PROMPT = """You research a single real person and report their most \
@@ -46,12 +39,8 @@ def build_best_work_agent(model: Any | None = None) -> Any:
         model=AGENT_MODEL,
         api_key=groq_api_key(),
         temperature=0,
-        # Unlike the user-facing identify step (max_retries=0, fail fast with
-        # an actionable message), the agent runs a multi-step tool loop on the
-        # 70B model whose free-tier TPM budget is easily throttled. A small
-        # retry budget lets it honor Groq's ~2s Retry-After and finish the
-        # loop instead of aborting it half-way. Persistent errors still
-        # surface to render.py's APIStatusError handler.
+        # Honor Groq's short Retry-After so the multi-step tool loop rides out
+        # transient throttling instead of aborting half-way.
         max_retries=3,
     )
     return create_agent(
@@ -62,11 +51,7 @@ def build_best_work_agent(model: Any | None = None) -> Any:
 
 
 def tool_was_called(messages: list[Any]) -> bool:
-    """True if the agent run actually invoked a tool (a ToolMessage exists).
-
-    The architecture's whole point is "agent calls tools"; this lets the eval
-    tier assert the agent grounded its answer rather than answering blind.
-    """
+    """True if the agent run invoked a tool (a ToolMessage exists)."""
     return any(isinstance(m, ToolMessage) for m in messages)
 
 
