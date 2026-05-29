@@ -24,6 +24,15 @@ stderr). Unidentified people get `info`, `source`, and `best_work` all `null`.
 }
 ```
 
+## Architecture
+
+C4 model docs (high-level, top-down):
+
+- [L1 — System Context](docs/c4-1-context.md)
+- [L2 — Container](docs/c4-2-container.md)
+- [L3 — Component](docs/c4-3-component.md)
+- [L4 — Code](docs/c4-4-code.md) — the Person Lookup Agent internals
+
 ## Requirements
 
 - Python 3.12+
