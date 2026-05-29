@@ -12,10 +12,9 @@ import wikipedia
 from bs4 import GuessedAtParserWarning
 from langchain.tools import tool
 
-# Wikipedia rejects requests without a descriptive User-Agent (403 otherwise).
-wikipedia.set_user_agent(
-    "person_finder/0.1 (NN GenAI assessment; +https://randomuser.me)"
-)
+from person_finder import config
+
+wikipedia.set_user_agent(config.WIKI_USER_AGENT)
 
 # The `wikipedia` library triggers GuessedAtParserWarning on every search;
 # silence it to keep CLI stderr clean.
@@ -45,12 +44,6 @@ def fetch_wiki_summary(
     return summary[:char_cap]
 
 
-# The agent needs more context than the one-shot identify step, so the tool
-# pulls a longer slice of the article.
-_TOOL_SENTENCES = 6
-_TOOL_CHAR_CAP = 1500
-
-
 @tool
 def wikipedia_lookup(name: str) -> str:
     """Look up a person on Wikipedia and return article summary text.
@@ -59,7 +52,7 @@ def wikipedia_lookup(name: str) -> str:
     for. Returns a short notice when no clean article match exists.
     """
     summary = fetch_wiki_summary(
-        name, sentences=_TOOL_SENTENCES, char_cap=_TOOL_CHAR_CAP
+        name, sentences=config.TOOL_SENTENCES, char_cap=config.TOOL_CHAR_CAP
     )
     if summary is None:
         return f"No Wikipedia article found for '{name}'."

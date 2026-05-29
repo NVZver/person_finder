@@ -12,14 +12,10 @@ from typing import Any
 
 from langchain.agents import create_agent
 from langchain_core.messages import ToolMessage
-from langchain_groq import ChatGroq
 
-from person_finder.config import groq_api_key
+from person_finder import config
 from person_finder.text import is_unknown
 from person_finder.tools import wikipedia_lookup
-
-# Tool-capable model: the 8B instant model emits tool calls unreliably.
-AGENT_MODEL = "llama-3.3-70b-versatile"
 
 SYSTEM_PROMPT = """You research a single real person and report their most \
 notable work or achievement.
@@ -35,14 +31,7 @@ UNKNOWN (no other text)."""
 
 def build_best_work_agent(model: Any | None = None) -> Any:
     """Return a compiled tool-calling agent bound to ``wikipedia_lookup``."""
-    llm = model if model is not None else ChatGroq(
-        model=AGENT_MODEL,
-        api_key=groq_api_key(),
-        temperature=0,
-        # Honor Groq's short Retry-After so the multi-step tool loop rides out
-        # transient throttling instead of aborting half-way.
-        max_retries=3,
-    )
+    llm = model if model is not None else config.build_llm()
     return create_agent(
         llm,
         tools=[wikipedia_lookup],

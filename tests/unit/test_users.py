@@ -75,10 +75,10 @@ def test_happy_path_mixed_years_returns_filtered_subset_in_order() -> None:
 
 
 def test_default_cap_is_five() -> None:
-    """Assignment: stick to 5 people for rate limits — `MAX_PEOPLE == 5`."""
-    from person_finder.users import MAX_PEOPLE
+    """Assignment: stick to 5 people for rate limits — `max_people() == 5`."""
+    from person_finder.config import max_people
 
-    assert MAX_PEOPLE == 5
+    assert max_people() == 5
 
 
 def test_limit_truncates_filtered_results() -> None:
@@ -115,12 +115,13 @@ def test_all_born_after_2000_returns_empty_list() -> None:
 def test_all_born_2000_or_earlier_caps_at_max_people_in_order() -> None:
     records = [_record(f"First{i}", f"Last{i}", 1950 + i) for i in range(20)]
 
-    from person_finder.users import MAX_PEOPLE, fetch_user_names
+    from person_finder.config import max_people
+    from person_finder.users import fetch_user_names
 
     with patch("person_finder.users.urlopen", return_value=_body(records)):
         names = fetch_user_names()
 
-    assert names == [f"First{i} Last{i}" for i in range(MAX_PEOPLE)]
+    assert names == [f"First{i} Last{i}" for i in range(max_people())]
 
 
 def test_boundary_year_2000_is_kept() -> None:

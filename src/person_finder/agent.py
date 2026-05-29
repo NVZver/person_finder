@@ -14,17 +14,13 @@ from __future__ import annotations
 from typing import Any
 
 from langchain_core.messages import HumanMessage
-from langchain_groq import ChatGroq
 
-from person_finder.best_work_agent import research_best_work
-from person_finder.config import groq_api_key
+from person_finder import config
+from person_finder.best_work_agent import build_best_work_agent, research_best_work
 from person_finder.text import UNKNOWN_SENTINEL, is_unknown
 from person_finder.tools import fetch_wiki_summary
 
 __all__ = ["enrich_names", "UNKNOWN_SENTINEL"]
-
-_WIKI_SENTENCES = 3
-_SUMMARY_CHAR_CAP = 600
 
 
 SUMMARIZE_PROMPT = """Summarize the following Wikipedia content about a person in 1-2 sentences.
@@ -51,22 +47,6 @@ If you are not highly confident that this is a specific, real, notable person,
 respond with exactly the single word UNKNOWN (no punctuation, no other text).
 
 Return ONLY the 1-2 sentence summary OR the word UNKNOWN."""
-
-
-# The 70B model refuses non-famous names reliably; the 8B instant model
-# fabricates confident biographies for them.
-IDENTIFY_MODEL = "llama-3.3-70b-versatile"
-
-
-def _model() -> ChatGroq:
-    return ChatGroq(
-        model=IDENTIFY_MODEL,
-        api_key=groq_api_key(),
-        temperature=0,
-        # Honor Groq's short Retry-After on transient throttling; persistent
-        # errors still surface fast to render.py's APIStatusError handler.
-        max_retries=2,
-    )
 
 
 def _summarize_article(llm: Any, content: str) -> str | None:
@@ -99,7 +79,9 @@ def _identify_from_memory(llm: Any, name: str) -> str | None:
 def _identify(llm: Any, name: str) -> tuple[str | None, str | None]:
     """Return ``(info, source)`` for `name`. Both null when unidentified."""
     article = fetch_wiki_summary(
-        name, sentences=_WIKI_SENTENCES, char_cap=_SUMMARY_CHAR_CAP
+        name,
+        sentences=config.IDENTIFY_SENTENCES,
+        char_cap=config.IDENTIFY_CHAR_CAP,
     )
     if article is not None:
         summary = _summarize_article(llm, article)
@@ -131,14 +113,22 @@ def enrich_names(
     `with_best_work=False` skips the agentic stage (e.g. identify-only runs).
     The best-work agent runs only for identified people; unidentified rows
     carry ``best_work=None``.
+
+    The same LLM instance backs both the identify step and the best-work agent,
+    and the agent is built once here (not per name).
     """
-    llm = model if model is not None else _model()
+    llm = model if model is not None else config.build_llm()
+
+    agent = best_work_agent
+    if with_best_work and agent is None:
+        agent = build_best_work_agent(model=llm)
+
     rows: list[dict[str, Any]] = []
     for name in names:
         info, source = _identify(llm, name)
 
         if info is not None and with_best_work:
-            best_work = research_best_work(name, agent=best_work_agent)
+            best_work = research_best_work(name, agent=agent)
         else:
             best_work = None
 
