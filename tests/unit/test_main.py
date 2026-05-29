@@ -1,4 +1,4 @@
-"""Unit tests for the render orchestrator — all collaborators mocked."""
+"""Unit tests for the CLI entrypoint (main.py) — all collaborators mocked."""
 
 from __future__ import annotations
 
@@ -15,36 +15,38 @@ def test_success_prints_json_and_exits_zero(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    from person_finder import render
+    from person_finder import main as cli
 
     payload = {"data": [{"person": "Ada Lovelace", "info": None, "source": None}]}
-    monkeypatch.setattr(render, "fetch_user_names", lambda: ["Ada Lovelace"])
-    monkeypatch.setattr(render, "enrich_names", lambda names: payload)
+    monkeypatch.setattr(cli, "fetch_user_names", lambda: ["Ada Lovelace"])
+    monkeypatch.setattr(cli, "lookup_people", lambda names: payload)
 
     with pytest.raises(SystemExit) as exc_info:
-        render.main()
+        cli.main()
 
     assert exc_info.value.code == 0
     captured = capsys.readouterr()
+    # stdout stays pure enriched JSON (pipeable).
     assert json.loads(captured.out) == payload
-    assert captured.err == ""
+    # Ex2: the formatted names array is logged to the console (stderr).
+    assert "'Ada Lovelace'" in captured.err
 
 
 def test_json_decode_error_prints_stderr_and_exits_nonzero(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    from person_finder import render
+    from person_finder import main as cli
 
-    monkeypatch.setattr(render, "fetch_user_names", lambda: ["Ada Lovelace"])
+    monkeypatch.setattr(cli, "fetch_user_names", lambda: ["Ada Lovelace"])
 
     def _boom(names: list[str]) -> dict[str, Any]:
         raise json.JSONDecodeError("Expecting value", "not json", 0)
 
-    monkeypatch.setattr(render, "enrich_names", _boom)
+    monkeypatch.setattr(cli, "lookup_people", _boom)
 
     with pytest.raises(SystemExit) as exc_info:
-        render.main()
+        cli.main()
 
     assert exc_info.value.code != 0
     captured = capsys.readouterr()
@@ -63,9 +65,9 @@ def test_api_status_error_prints_api_message_no_traceback(
     import httpx
     from groq import RateLimitError
 
-    from person_finder import render
+    from person_finder import main as cli
 
-    monkeypatch.setattr(render, "fetch_user_names", lambda: ["Ada Lovelace"])
+    monkeypatch.setattr(cli, "fetch_user_names", lambda: ["Ada Lovelace"])
 
     clean_message = (
         "Rate limit reached for model `llama-3.1-8b-instant`. "
@@ -82,10 +84,10 @@ def test_api_status_error_prints_api_message_no_traceback(
         response = httpx.Response(429, request=request)
         raise RateLimitError(raw_message, response=response, body=body)
 
-    monkeypatch.setattr(render, "enrich_names", _boom)
+    monkeypatch.setattr(cli, "lookup_people", _boom)
 
     with pytest.raises(SystemExit) as exc_info:
-        render.main()
+        cli.main()
 
     assert exc_info.value.code != 0
     captured = capsys.readouterr()
@@ -101,16 +103,16 @@ def test_user_fetch_error_prints_same_user_message(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    from person_finder import render
-    from person_finder.users import UserFetchError
+    from person_finder import main as cli
+    from person_finder.person_loader import UserFetchError
 
     def _boom() -> list[str]:
         raise UserFetchError("HTTP 503")
 
-    monkeypatch.setattr(render, "fetch_user_names", _boom)
+    monkeypatch.setattr(cli, "fetch_user_names", _boom)
 
     with pytest.raises(SystemExit) as exc_info:
-        render.main()
+        cli.main()
 
     assert exc_info.value.code != 0
     captured = capsys.readouterr()
@@ -120,11 +122,11 @@ def test_user_fetch_error_prints_same_user_message(
 
 
 def test_import_has_no_side_effects(tmp_path: Path) -> None:
-    """`import person_finder.render` must not read env, hit disk, or raise."""
+    """`import person_finder.main` must not read env, hit disk, or raise."""
     child_env = {"PATH": os.environ["PATH"], "HOME": os.environ["HOME"]}
 
     result = subprocess.run(
-        ["uv", "run", "python", "-c", "import person_finder.render"],
+        ["uv", "run", "python", "-c", "import person_finder.main"],
         cwd=tmp_path,
         env=child_env,
         capture_output=True,

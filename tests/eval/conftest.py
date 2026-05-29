@@ -2,10 +2,10 @@
 
 Tests skip cleanly when `GROQ_API_KEY` is absent so empty-key dev paths stay green.
 
-The live pipeline is expensive (per person: an identify call plus a tool-calling
-agent run) and rate-limited on the free tier, so it runs **once** per session
-via `live_payload` and both the structural and correctness evals consume that
-single result.
+The live agent is expensive (per person: a tool-calling agent run that may hit
+Wikipedia twice) and rate-limited on the free tier, so it runs **once** per
+session via `live_payload` and both the structural and correctness evals consume
+that single result.
 """
 
 from __future__ import annotations
@@ -50,34 +50,33 @@ def _require_key() -> str:
 
 @pytest.fixture
 def agent_under_test() -> Callable[..., Any]:
-    """Return `enrich_names`, or skip if `GROQ_API_KEY` is missing."""
+    """Return `lookup_people`, or skip if `GROQ_API_KEY` is missing."""
     _require_key()
-    from person_finder.agent import enrich_names
-    return enrich_names
+    from person_finder.person_lookup_agent import lookup_people
+    return lookup_people
 
 
 @pytest.fixture(scope="session")
 def live_payload() -> dict[str, Any]:
-    """Run the full live pipeline over `PUBLIC_FIGURES` once per session."""
+    """Run the full live agent over `PUBLIC_FIGURES` once per session."""
     if not os.environ.get("GROQ_API_KEY"):
         pytest.skip("GROQ_API_KEY unset — agent cannot reach Groq")
-    from person_finder.agent import enrich_names
-    return enrich_names(PUBLIC_FIGURES)
+    from person_finder.person_lookup_agent import lookup_people
+    return lookup_people(PUBLIC_FIGURES)
 
 
 @pytest.fixture(scope="session")
 def live_fictional_payload() -> dict[str, Any]:
-    """Run the live *identify* step over `FICTIONAL_NAMES` once per session.
+    """Run the live agent over `FICTIONAL_NAMES` once per session.
 
-    The precision guard is about whether the identify step hallucinates a
-    biography, so we run it identify-only (`with_best_work=False`): no 70B
-    agent, no judge — just the cheap 8B identify calls. Keeps the guard fast
-    and isolates the failure surface to the step it actually tests.
+    The precision guard is about whether the agent hallucinates a biography for
+    a non-notable name. The agent naturally skips the best-work tool for anyone
+    it can't identify, so this stays cheap while exercising the real path.
     """
     if not os.environ.get("GROQ_API_KEY"):
         pytest.skip("GROQ_API_KEY unset — agent cannot reach Groq")
-    from person_finder.agent import enrich_names
-    return enrich_names(FICTIONAL_NAMES, with_best_work=False)
+    from person_finder.person_lookup_agent import lookup_people
+    return lookup_people(FICTIONAL_NAMES)
 
 
 @pytest.fixture(scope="session")

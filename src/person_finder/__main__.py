@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from person_finder.render import main
+from person_finder.main import main
 
 
 if __name__ == "__main__":

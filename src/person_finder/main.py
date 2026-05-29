@@ -1,4 +1,4 @@
-"""CLI entrypoint: fetch -> enrich -> print."""
+"""CLI entrypoint: fetch -> log names (Ex2) -> agent lookup -> print JSON."""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ import sys
 
 from groq import APIStatusError
 
-from person_finder.agent import enrich_names
-from person_finder.users import UserFetchError, fetch_user_names
+from person_finder.person_lookup_agent import lookup_people
+from person_finder.person_loader import UserFetchError, fetch_user_names
 
 
 def _extract_api_message(exc: APIStatusError) -> str:
@@ -23,10 +23,19 @@ def _extract_api_message(exc: APIStatusError) -> str:
     return exc.message
 
 
+def _format_names(names: list[str]) -> str:
+    """Render the Ex2 array-of-strings exactly as the assignment example shows."""
+    lines = ",\n".join(f"  '{name}'" for name in names)
+    return f"[\n{lines}\n]"
+
+
 def main() -> None:
     try:
         names = fetch_user_names()
-        payload = enrich_names(names)
+        # Ex2: log the formatted names array to the console. stderr keeps stdout
+        # a clean, pipeable JSON document.
+        print(_format_names(names), file=sys.stderr, flush=True)
+        payload = lookup_people(names)
     except APIStatusError as exc:
         # Surface Groq's own actionable message instead of a stack trace.
         print(f"Error: {_extract_api_message(exc)}", file=sys.stderr)

@@ -1,7 +1,7 @@
 [project]
 name = "person_finder"
 version = "0.1.0"
-description = "Fetches random users and asks a Groq LLM to identify each one; returns typed JSON."
+description = "Fetches random users and runs a Groq-backed LangChain agent to identify each one and their best work; returns typed JSON."
 readme = "README.md"
 requires-python = ">=3.12"
 license = { file = "LICENSE" }

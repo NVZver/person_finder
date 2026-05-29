@@ -1,16 +1,19 @@
 # person_finder
 
 A Python CLI that fetches random users from [randomuser.me](https://randomuser.me),
-keeps those born on or before 2000 (capped at 5), and for each name runs two
-stages:
+keeps those born on or before 2000 (capped at 5), and hands each name to a
+single LangChain agent (Groq-hosted `llama-3.3-70b-versatile`) with two tools:
 
-- **identify** — Wikipedia first, Groq-hosted `llama-3.3-70b-versatile` as
-  fallback. Each row is tagged `source: "wiki" | "llm" | null`.
-- **best work** — a LangChain tool-calling agent that researches each
-  identified person's most notable achievement.
+- **`lookup_person`** — Wikipedia bio lookup for *who the person is*.
+- **`lookup_best_work`** — Wikipedia lookup for their *most notable work*.
 
-The result is printed to stdout as JSON. Unidentified people get
-`info`, `source`, and `best_work` all `null`.
+The agent decides for itself: identify from Wikipedia (`source: "wiki"`), else
+from its own knowledge (`source: "llm"`), else `UNKNOWN`; and only then research
+the best work. Its structured output is verified against the contract, with one
+self-repair attempt before a contract-safe fallback.
+
+The result is printed to stdout as JSON (the formatted names array is logged to
+stderr). Unidentified people get `info`, `source`, and `best_work` all `null`.
 
 ```json
 {

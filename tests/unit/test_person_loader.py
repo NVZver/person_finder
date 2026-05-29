@@ -1,4 +1,4 @@
-"""Unit tests for `person_finder.users`.
+"""Unit tests for `person_finder.person_loader`.
 
 Covers: fetch 20 randomuser records, drop year-of-birth > 2000, truncate to
 `MAX_PEOPLE` (5), return `list[str]` of `"First Last"` in API response order.
@@ -58,9 +58,9 @@ def test_happy_path_mixed_years_returns_filtered_subset_in_order() -> None:
         captured["url"] = url
         return _body(records)
 
-    from person_finder.users import fetch_user_names
+    from person_finder.person_loader import fetch_user_names
 
-    with patch("person_finder.users.urlopen", side_effect=_urlopen):
+    with patch("person_finder.person_loader.urlopen", side_effect=_urlopen):
         names = fetch_user_names()
 
     # 12 records pass the year filter, but the default cap keeps the first 5.
@@ -84,9 +84,9 @@ def test_default_cap_is_five() -> None:
 def test_limit_truncates_filtered_results() -> None:
     records = [_record(f"First{i}", f"Last{i}", 1950 + i) for i in range(20)]
 
-    from person_finder.users import fetch_user_names
+    from person_finder.person_loader import fetch_user_names
 
-    with patch("person_finder.users.urlopen", return_value=_body(records)):
+    with patch("person_finder.person_loader.urlopen", return_value=_body(records)):
         names = fetch_user_names(limit=3)
 
     assert names == ["First0 Last0", "First1 Last1", "First2 Last2"]
@@ -97,18 +97,18 @@ def test_fewer_matches_than_limit_returns_all_matches() -> None:
         _record(f"Young{i}", f"Person{i}", 2005) for i in range(19)
     ]
 
-    from person_finder.users import fetch_user_names
+    from person_finder.person_loader import fetch_user_names
 
-    with patch("person_finder.users.urlopen", return_value=_body(records)):
+    with patch("person_finder.person_loader.urlopen", return_value=_body(records)):
         assert fetch_user_names() == ["Only One"]
 
 
 def test_all_born_after_2000_returns_empty_list() -> None:
     records = [_record(f"P{i}", f"L{i}", 2001 + (i % 5)) for i in range(20)]
 
-    from person_finder.users import fetch_user_names
+    from person_finder.person_loader import fetch_user_names
 
-    with patch("person_finder.users.urlopen", return_value=_body(records)):
+    with patch("person_finder.person_loader.urlopen", return_value=_body(records)):
         assert fetch_user_names() == []
 
 
@@ -116,9 +116,9 @@ def test_all_born_2000_or_earlier_caps_at_max_people_in_order() -> None:
     records = [_record(f"First{i}", f"Last{i}", 1950 + i) for i in range(20)]
 
     from person_finder.config import max_people
-    from person_finder.users import fetch_user_names
+    from person_finder.person_loader import fetch_user_names
 
-    with patch("person_finder.users.urlopen", return_value=_body(records)):
+    with patch("person_finder.person_loader.urlopen", return_value=_body(records)):
         names = fetch_user_names()
 
     assert names == [f"First{i} Last{i}" for i in range(max_people())]
@@ -128,18 +128,18 @@ def test_boundary_year_2000_is_kept() -> None:
     """Spec: drop *after* 2000 → year == 2000 is retained."""
     records = [_record("Boundary", "Person", 2000)]
 
-    from person_finder.users import fetch_user_names
+    from person_finder.person_loader import fetch_user_names
 
-    with patch("person_finder.users.urlopen", return_value=_body(records)):
+    with patch("person_finder.person_loader.urlopen", return_value=_body(records)):
         assert fetch_user_names() == ["Boundary Person"]
 
 
 def test_http_error_status_raises_user_fetch_error() -> None:
     err = HTTPError("https://x", 503, "Service Unavailable", hdrs={}, fp=None)  # type: ignore[arg-type]
 
-    from person_finder.users import UserFetchError, fetch_user_names
+    from person_finder.person_loader import UserFetchError, fetch_user_names
 
-    with patch("person_finder.users.urlopen", side_effect=err):
+    with patch("person_finder.person_loader.urlopen", side_effect=err):
         with pytest.raises(UserFetchError) as exc_info:
             fetch_user_names()
 
@@ -147,25 +147,25 @@ def test_http_error_status_raises_user_fetch_error() -> None:
 
 
 def test_url_error_raises_user_fetch_error() -> None:
-    from person_finder.users import UserFetchError, fetch_user_names
+    from person_finder.person_loader import UserFetchError, fetch_user_names
 
-    with patch("person_finder.users.urlopen", side_effect=URLError("dns failure")):
+    with patch("person_finder.person_loader.urlopen", side_effect=URLError("dns failure")):
         with pytest.raises(UserFetchError):
             fetch_user_names()
 
 
 def test_malformed_json_body_raises_user_fetch_error() -> None:
-    from person_finder.users import UserFetchError, fetch_user_names
+    from person_finder.person_loader import UserFetchError, fetch_user_names
 
-    with patch("person_finder.users.urlopen", return_value=io.BytesIO(b"{not json")):
+    with patch("person_finder.person_loader.urlopen", return_value=io.BytesIO(b"{not json")):
         with pytest.raises(UserFetchError):
             fetch_user_names()
 
 
 def test_missing_results_key_raises_user_fetch_error() -> None:
-    from person_finder.users import UserFetchError, fetch_user_names
+    from person_finder.person_loader import UserFetchError, fetch_user_names
 
-    with patch("person_finder.users.urlopen", return_value=io.BytesIO(b'{"info":{}}')):
+    with patch("person_finder.person_loader.urlopen", return_value=io.BytesIO(b'{"info":{}}')):
         with pytest.raises(UserFetchError):
             fetch_user_names()
 
@@ -173,17 +173,17 @@ def test_missing_results_key_raises_user_fetch_error() -> None:
 def test_record_missing_dob_date_raises_user_fetch_error() -> None:
     bad_record = {"name": {"first": "No", "last": "Date"}, "dob": {"age": 30}}
 
-    from person_finder.users import UserFetchError, fetch_user_names
+    from person_finder.person_loader import UserFetchError, fetch_user_names
 
-    with patch("person_finder.users.urlopen", return_value=_body([bad_record])):
+    with patch("person_finder.person_loader.urlopen", return_value=_body([bad_record])):
         with pytest.raises(UserFetchError):
             fetch_user_names()
 
 
 def test_empty_results_returns_empty_list_not_error() -> None:
-    from person_finder.users import fetch_user_names
+    from person_finder.person_loader import fetch_user_names
 
-    with patch("person_finder.users.urlopen", return_value=_body([])):
+    with patch("person_finder.person_loader.urlopen", return_value=_body([])):
         assert fetch_user_names() == []
 
 
@@ -193,8 +193,8 @@ def test_record_missing_name_first_raises_user_fetch_error() -> None:
         "dob": {"date": "1990-01-01T00:00:00.000Z", "age": 35},
     }
 
-    from person_finder.users import UserFetchError, fetch_user_names
+    from person_finder.person_loader import UserFetchError, fetch_user_names
 
-    with patch("person_finder.users.urlopen", return_value=_body([bad_record])):
+    with patch("person_finder.person_loader.urlopen", return_value=_body([bad_record])):
         with pytest.raises(UserFetchError):
             fetch_user_names()

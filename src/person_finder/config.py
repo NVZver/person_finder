@@ -60,7 +60,7 @@ def max_retries() -> int:
     """LLM retry budget — `MAX_RETRIES` env override, else 3.
 
     Honors Groq's short Retry-After on transient throttling; persistent errors
-    still surface fast to render.py's APIStatusError handler.
+    still surface fast to main.py's APIStatusError handler.
     """
     _load_env()
     return int(os.environ.get("MAX_RETRIES", str(DEFAULT_MAX_RETRIES)))
@@ -82,4 +82,8 @@ def build_llm() -> ChatGroq:
         api_key=groq_api_key(),
         temperature=TEMPERATURE,
         max_retries=max_retries(),
+        # Disable parallel tool calls: the model otherwise emits the structured
+        # response (PersonResult) twice in one turn alongside the lookup tools,
+        # which langchain rejects — leaving no `structured_response`.
+        model_kwargs={"parallel_tool_calls": False},
     )
