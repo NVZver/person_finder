@@ -53,17 +53,6 @@ Solid edges = data flow · dotted = "uses" (helpers).
 | Config + LLM Factory | `config.py` | constants + one `ChatGroq` |
 | Text Utils | `text.py` | `UNKNOWN` sentinel match |
 
-## Defense in depth (every layer has a fallback)
-| Failure | Caught in | Result |
-|---|---|---|
-| wiki miss / network | `wikipedia.py` | `None` → tool returns "no article" |
-| tool finds nothing | agent (prompt) | fall back to model knowledge (`source:"llm"`) |
-| can't identify | agent (prompt) | `UNKNOWN` → all fields null |
-| contract violation | agent (`_verify`) | 1 repair retry → normalize to safe shape |
-| randomuser/Groq down | `main.py` | clean stderr message, non-zero exit |
-
-Smallest failure unit = one name / one field; nothing aborts the batch.
-
 ## Test pyramid (production-readiness proof)
 
 ```mermaid
