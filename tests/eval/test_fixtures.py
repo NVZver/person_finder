@@ -4,14 +4,22 @@ from __future__ import annotations
 
 import pytest
 
-from .conftest import PUBLIC_FIGURES
+from .conftest import FICTIONAL_NAMES, PUBLIC_FIGURES
 
 
 def test_public_figures_roster_is_non_trivial() -> None:
-    """The live-agent guard depends on a non-trivial roster — keep at least 5
+    """The live-agent guard depends on a non-trivial roster — keep at least 3
     iconic figures so a regression has multiple chances to surface."""
-    assert len(PUBLIC_FIGURES) >= 5
+    assert len(PUBLIC_FIGURES) >= 3
     assert all(isinstance(name, str) and name.strip() for name in PUBLIC_FIGURES)
+
+
+def test_fictional_roster_is_non_trivial_and_disjoint() -> None:
+    """The precision guard needs several clearly-fictional names, none of which
+    overlap the famous roster (that would make one guard contradict the other)."""
+    assert len(FICTIONAL_NAMES) >= 3
+    assert all(isinstance(name, str) and name.strip() for name in FICTIONAL_NAMES)
+    assert set(FICTIONAL_NAMES).isdisjoint(PUBLIC_FIGURES)
 
 
 def test_agent_under_test_skips_when_groq_key_missing(

@@ -1,4 +1,4 @@
-"""Unit tests for the per-name agent loop — all LLM/Wikipedia calls mocked."""
+"""Unit tests for the enrich pipeline — all LLM/Wikipedia/agent calls mocked."""
 
 from __future__ import annotations
 
@@ -22,9 +22,21 @@ class _StubLLM:
         self.calls: list[str] = []
 
     def invoke(self, messages: list[Any]) -> AIMessage:
-        # The agent always sends a single HumanMessage.
+        # The identify step always sends a single HumanMessage.
         self.calls.append(messages[0].content)
         return AIMessage(content=self.replies.pop(0))
+
+
+class _StubAgent:
+    """Fake best-work agent: records prompts, returns canned final messages."""
+
+    def __init__(self, replies: list[str]) -> None:
+        self.replies = list(replies)
+        self.calls: list[str] = []
+
+    def invoke(self, payload: dict[str, Any]) -> dict[str, Any]:
+        self.calls.append(payload["messages"][-1][1])
+        return {"messages": [AIMessage(content=self.replies.pop(0))]}
 
 
 def _patch_wiki(
@@ -32,24 +44,24 @@ def _patch_wiki(
     *,
     by_name: dict[str, str | type[BaseException] | None],
 ) -> list[str]:
-    """Patch `wikipedia.summary` to return / raise per name.
+    """Patch the shared `fetch_wiki_summary` to return / raise per name.
 
-    Values: a string is returned as the summary; an exception class is
-    raised; `None` returns `""` (treated as a miss). Records the queries
-    in the returned list for assertion.
+    Values: a string is returned as the summary; an exception class is raised
+    (surfacing as a miss); `None` is a miss. Records queries for assertion.
     """
     queries: list[str] = []
 
-    def _fake_summary(name: str, sentences: int = 3, auto_suggest: bool = True) -> str:
+    def _fake_summary(name: str, *, sentences: int, char_cap: int) -> str | None:
         queries.append(name)
         outcome = by_name[name]
-        if outcome is None:
-            return ""
         if isinstance(outcome, type) and issubclass(outcome, BaseException):
-            raise outcome(name, [])  # both PageError and DisambiguationError accept this
+            # Mirror the real helper, which swallows wiki exceptions → None.
+            return None
+        if outcome is None:
+            return None
         return outcome
 
-    monkeypatch.setattr(agent_module.wikipedia, "summary", _fake_summary)
+    monkeypatch.setattr(agent_module, "fetch_wiki_summary", _fake_summary)
     return queries
 
 
@@ -58,8 +70,9 @@ def test_wiki_hit_routes_to_summary_with_wiki_source(
 ) -> None:
     _patch_wiki(monkeypatch, by_name={"Ada Lovelace": "Ada Lovelace was an English mathematician..."})
     stub = _StubLLM(["English mathematician, daughter of Lord Byron, pioneer of computing."])
+    agent = _StubAgent(["Her notes on the Analytical Engine — the first published algorithm."])
 
-    result = agent_module.enrich_names(["Ada Lovelace"], model=stub)
+    result = agent_module.enrich_names(["Ada Lovelace"], model=stub, best_work_agent=agent)
 
     assert result == {
         "data": [
@@ -67,12 +80,16 @@ def test_wiki_hit_routes_to_summary_with_wiki_source(
                 "person": "Ada Lovelace",
                 "info": "English mathematician, daughter of Lord Byron, pioneer of computing.",
                 "source": "wiki",
+                "best_work": "Her notes on the Analytical Engine — the first published algorithm.",
             }
         ]
     }
-    # The LLM was called once (summarize), not twice.
+    # Identify made one call (summarize, not identify-from-memory).
     assert len(stub.calls) == 1
     assert "Ada Lovelace was an English mathematician" in stub.calls[0]
+    # The best-work agent was consulted once for the identified person.
+    assert len(agent.calls) == 1
+    assert "Ada Lovelace" in agent.calls[0]
 
 
 def test_wiki_miss_then_llm_identifies_routes_to_llm_source(
@@ -80,8 +97,9 @@ def test_wiki_miss_then_llm_identifies_routes_to_llm_source(
 ) -> None:
     _patch_wiki(monkeypatch, by_name={"Adam Smith": None})
     stub = _StubLLM(["Scottish economist (1723-1790), best known for The Wealth of Nations."])
+    agent = _StubAgent(["The Wealth of Nations (1776), founding modern economics."])
 
-    result = agent_module.enrich_names(["Adam Smith"], model=stub)
+    result = agent_module.enrich_names(["Adam Smith"], model=stub, best_work_agent=agent)
 
     assert result == {
         "data": [
@@ -89,6 +107,7 @@ def test_wiki_miss_then_llm_identifies_routes_to_llm_source(
                 "person": "Adam Smith",
                 "info": "Scottish economist (1723-1790), best known for The Wealth of Nations.",
                 "source": "llm",
+                "best_work": "The Wealth of Nations (1776), founding modern economics.",
             }
         ]
     }
@@ -96,36 +115,95 @@ def test_wiki_miss_then_llm_identifies_routes_to_llm_source(
     assert "Adam Smith" in stub.calls[0]
 
 
-def test_wiki_miss_and_llm_unknown_emits_null_pair(
+def test_wiki_miss_and_llm_unknown_emits_null_pair_and_skips_agent(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _patch_wiki(monkeypatch, by_name={"Random Fictional": None})
     stub = _StubLLM([agent_module.UNKNOWN_SENTINEL])
+    agent = _StubAgent([])  # must never be called
 
-    result = agent_module.enrich_names(["Random Fictional"], model=stub)
+    result = agent_module.enrich_names(["Random Fictional"], model=stub, best_work_agent=agent)
 
     assert result == {
         "data": [
-            {"person": "Random Fictional", "info": None, "source": None}
+            {"person": "Random Fictional", "info": None, "source": None, "best_work": None}
         ]
     }
+    # Unidentified person → no point researching best work.
+    assert agent.calls == []
+
+
+def test_wiki_hit_but_summary_unknown_emits_null_pair_no_fallthrough(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A wiki article that isn't about an identifiable person → summarize emits
+    UNKNOWN → null pair. The memory path must NOT be consulted (no second LLM
+    call), and the best-work agent must not run."""
+    _patch_wiki(monkeypatch, by_name={"Andrea Glavas": "Glavas is a surname. It may refer to..."})
+    stub = _StubLLM([agent_module.UNKNOWN_SENTINEL])  # only the summarize call
+    agent = _StubAgent([])  # must never be called
+
+    result = agent_module.enrich_names(["Andrea Glavas"], model=stub, best_work_agent=agent)
+
+    assert result == {
+        "data": [
+            {"person": "Andrea Glavas", "info": None, "source": None, "best_work": None}
+        ]
+    }
+    # Exactly one LLM call (summarize) — no fall-through to identify-from-memory.
+    assert len(stub.calls) == 1
+    assert agent.calls == []
+
+
+def test_identified_person_with_unknown_best_work_gets_null_best_work(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Identified, but the agent can't name a notable work → best_work=None,
+    while info/source stay populated."""
+    _patch_wiki(monkeypatch, by_name={"Jane Doe": "Jane Doe is a software engineer."})
+    stub = _StubLLM(["Software engineer."])
+    agent = _StubAgent(["UNKNOWN"])
+
+    result = agent_module.enrich_names(["Jane Doe"], model=stub, best_work_agent=agent)
+
+    row = result["data"][0]
+    assert row["info"] == "Software engineer."
+    assert row["source"] == "wiki"
+    assert row["best_work"] is None
+    assert len(agent.calls) == 1
+
+
+def test_with_best_work_false_skips_agent_entirely(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_wiki(monkeypatch, by_name={"Ada Lovelace": "Ada Lovelace article..."})
+    stub = _StubLLM(["English mathematician."])
+    agent = _StubAgent([])  # must never be called
+
+    result = agent_module.enrich_names(
+        ["Ada Lovelace"], model=stub, best_work_agent=agent, with_best_work=False
+    )
+
+    assert result["data"][0]["best_work"] is None
+    assert agent.calls == []
 
 
 def test_unknown_sentinel_matching_is_permissive(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The model is at temp=0 but small models still emit punctuation /
-    case variation. All of `UNKNOWN`, `unknown.`, ` Unknown `, and the
-    empty string must route to the null pair."""
+    """All of `UNKNOWN`, `unknown.`, ` Unknown `, and "" route to the null pair."""
     names = ["A", "B", "C", "D"]
     _patch_wiki(monkeypatch, by_name={n: None for n in names})
     stub = _StubLLM(["UNKNOWN", "unknown.", " Unknown ", ""])
+    agent = _StubAgent([])
 
-    result = agent_module.enrich_names(names, model=stub)
+    result = agent_module.enrich_names(names, model=stub, best_work_agent=agent)
 
     for row in result["data"]:
         assert row["info"] is None, f"row {row} should have null info"
         assert row["source"] is None, f"row {row} should have null source"
+        assert row["best_work"] is None
+    assert agent.calls == []
 
 
 def test_wikipedia_disambiguation_is_treated_as_miss(
@@ -136,12 +214,12 @@ def test_wikipedia_disambiguation_is_treated_as_miss(
         by_name={"John Smith": wikipedia.exceptions.DisambiguationError},
     )
     stub = _StubLLM([agent_module.UNKNOWN_SENTINEL])
+    agent = _StubAgent([])
 
-    result = agent_module.enrich_names(["John Smith"], model=stub)
+    result = agent_module.enrich_names(["John Smith"], model=stub, best_work_agent=agent)
 
-    # Disambiguation → wiki miss → LLM fallback (which says UNKNOWN here) → null pair.
+    # Disambiguation → wiki miss → LLM fallback (UNKNOWN here) → null pair.
     assert result["data"][0]["source"] is None
-    # The LLM was consulted (one call: the identify step).
     assert len(stub.calls) == 1
 
 
@@ -153,17 +231,20 @@ def test_wikipedia_page_error_is_treated_as_miss(
         by_name={"Nonexistent Page": wikipedia.exceptions.PageError},
     )
     stub = _StubLLM(["A real person summary."])
+    agent = _StubAgent(["A notable achievement."])
 
-    result = agent_module.enrich_names(["Nonexistent Page"], model=stub)
+    result = agent_module.enrich_names(["Nonexistent Page"], model=stub, best_work_agent=agent)
 
     assert result["data"][0]["source"] == "llm"
     assert result["data"][0]["info"] == "A real person summary."
+    assert result["data"][0]["best_work"] == "A notable achievement."
 
 
-def test_mixed_batch_attributes_source_per_row(
+def test_mixed_batch_attributes_source_and_best_work_per_row(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Three names, three different paths in one call."""
+    """Three names, three different identify paths; agent runs only for the two
+    identified people, in order."""
     _patch_wiki(
         monkeypatch,
         by_name={
@@ -172,24 +253,32 @@ def test_mixed_batch_attributes_source_per_row(
             "Random Fictional": None,
         },
     )
-    # Call order: summarize(Ada), identify(Adam), identify(Random).
     stub = _StubLLM([
-        "Ada summary from wiki.",
-        "Adam summary from memory.",
-        "UNKNOWN",
+        "Ada summary from wiki.",   # summarize(Ada)
+        "Adam summary from memory.",  # identify(Adam)
+        "UNKNOWN",                  # identify(Random)
+    ])
+    agent = _StubAgent([
+        "Ada's best work.",   # research(Ada)
+        "Adam's best work.",  # research(Adam)
     ])
 
     result = agent_module.enrich_names(
-        ["Ada Lovelace", "Adam Smith", "Random Fictional"], model=stub
+        ["Ada Lovelace", "Adam Smith", "Random Fictional"], model=stub, best_work_agent=agent
     )
 
     assert result == {
         "data": [
-            {"person": "Ada Lovelace", "info": "Ada summary from wiki.", "source": "wiki"},
-            {"person": "Adam Smith", "info": "Adam summary from memory.", "source": "llm"},
-            {"person": "Random Fictional", "info": None, "source": None},
+            {"person": "Ada Lovelace", "info": "Ada summary from wiki.", "source": "wiki", "best_work": "Ada's best work."},
+            {"person": "Adam Smith", "info": "Adam summary from memory.", "source": "llm", "best_work": "Adam's best work."},
+            {"person": "Random Fictional", "info": None, "source": None, "best_work": None},
         ]
     }
+    # Agent ran twice — once per identified person, in order, skipping the
+    # unidentified row. `calls` holds the full prompt string per invocation.
+    assert len(agent.calls) == 2
+    assert "Ada Lovelace" in agent.calls[0]
+    assert "Adam Smith" in agent.calls[1]
 
 
 def test_enrich_names_without_groq_key_raises() -> None:

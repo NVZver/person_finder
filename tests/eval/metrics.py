@@ -3,10 +3,11 @@
 Each metric encodes one of the four quality criteria for the agent:
 
   - `ValidJsonStructure`   — output parses as JSON, has a `data` list of
-                              `{person:str, info:str|None, source:enum|None}`
-                              items with paired nullability between
-                              `info` and `source`. The `source` enum is
-                              `"wiki" | "llm" | null`.
+                              `{person:str, info:str|None, source:enum|None,
+                              best_work:str|None}` items with paired
+                              nullability between `info` and `source`, and
+                              `best_work` only present when `info` is. The
+                              `source` enum is `"wiki" | "llm" | null`.
   - `PersonNamesMatchInput` — every `data[].person` is in the input list
                               (constructor-injected, since DeepEval
                               4.0.4 rejects non-string `LLMTestCase.input`).
@@ -56,11 +57,14 @@ def _parse_payload(actual_output: str) -> tuple[Any, str | None]:
 
     Shape contract:
       - top-level: dict with a `data` key holding a list.
-      - per item: dict with keys `person`, `info`, `source`.
+      - per item: dict with keys `person`, `info`, `source`, `best_work`.
       - `person`: non-empty str.
       - `info`: str or None.
       - `source`: one of `"wiki"`, `"llm"`, or None.
+      - `best_work`: str or None.
       - paired nullability: `info is None` iff `source is None`.
+      - `best_work` requires identification: if `info is None` then
+        `best_work` must also be None (no person to research).
 
     Shared across all metrics so the parse error path is one source of
     truth — the reason wording is consistent and the contract substrings
@@ -87,7 +91,7 @@ def _parse_payload(actual_output: str) -> tuple[Any, str | None]:
         if not isinstance(item, dict):
             return None, f"data[{i}] is not an object — got {type(item).__name__}"
 
-        for key in ("person", "info", "source"):
+        for key in ("person", "info", "source", "best_work"):
             if key not in item:
                 return None, f'data[{i}] missing "{key}" key'
 
@@ -116,6 +120,19 @@ def _parse_payload(actual_output: str) -> tuple[Any, str | None]:
                 f"{'null' if info is None else 'non-null'} but source is "
                 f"{'null' if source is None else 'non-null'} — both must "
                 f"be null, or both populated"
+            )
+
+        best_work = item["best_work"]
+        if best_work is not None and not isinstance(best_work, str):
+            return None, (
+                f"data[{i}].best_work is not a str or null — got "
+                f"{type(best_work).__name__}"
+            )
+
+        if info is None and best_work is not None:
+            return None, (
+                f"data[{i}] has best_work but no info — cannot research the "
+                f"best work of an unidentified person"
             )
 
     return data, None

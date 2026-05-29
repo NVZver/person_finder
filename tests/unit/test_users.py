@@ -1,7 +1,7 @@
 """Unit tests for `person_finder.users`.
 
-Covers: fetch 20 randomuser records, drop year-of-birth > 2000, return
-`list[str]` of `"First Last"` in API response order.
+Covers: fetch 20 randomuser records, drop year-of-birth > 2000, truncate to
+`MAX_PEOPLE` (5), return `list[str]` of `"First Last"` in API response order.
 
 `urllib.request.urlopen` is mocked via `unittest.mock.patch` — no network.
 """
@@ -63,21 +63,44 @@ def test_happy_path_mixed_years_returns_filtered_subset_in_order() -> None:
     with patch("person_finder.users.urlopen", side_effect=_urlopen):
         names = fetch_user_names()
 
+    # 12 records pass the year filter, but the default cap keeps the first 5.
     assert names == [
         "Adam Smith",
         "Cara Lopez",
         "Eve Park",
         "Finn Ng",
         "Hal Vasquez",
-        "Jon Doe",
-        "Kim Liu",
-        "Mae Ito",
-        "Ola Mak",
-        "Pat Cruz",
-        "Rae Khan",
-        "Tia West",
     ]
     assert captured["url"] == "https://randomuser.me/api/?results=20"
+
+
+def test_default_cap_is_five() -> None:
+    """Assignment: stick to 5 people for rate limits — `MAX_PEOPLE == 5`."""
+    from person_finder.users import MAX_PEOPLE
+
+    assert MAX_PEOPLE == 5
+
+
+def test_limit_truncates_filtered_results() -> None:
+    records = [_record(f"First{i}", f"Last{i}", 1950 + i) for i in range(20)]
+
+    from person_finder.users import fetch_user_names
+
+    with patch("person_finder.users.urlopen", return_value=_body(records)):
+        names = fetch_user_names(limit=3)
+
+    assert names == ["First0 Last0", "First1 Last1", "First2 Last2"]
+
+
+def test_fewer_matches_than_limit_returns_all_matches() -> None:
+    records = [_record("Only", "One", 1990)] + [
+        _record(f"Young{i}", f"Person{i}", 2005) for i in range(19)
+    ]
+
+    from person_finder.users import fetch_user_names
+
+    with patch("person_finder.users.urlopen", return_value=_body(records)):
+        assert fetch_user_names() == ["Only One"]
 
 
 def test_all_born_after_2000_returns_empty_list() -> None:
@@ -89,15 +112,15 @@ def test_all_born_after_2000_returns_empty_list() -> None:
         assert fetch_user_names() == []
 
 
-def test_all_born_2000_or_earlier_returns_all_twenty_in_order() -> None:
+def test_all_born_2000_or_earlier_caps_at_max_people_in_order() -> None:
     records = [_record(f"First{i}", f"Last{i}", 1950 + i) for i in range(20)]
 
-    from person_finder.users import fetch_user_names
+    from person_finder.users import MAX_PEOPLE, fetch_user_names
 
     with patch("person_finder.users.urlopen", return_value=_body(records)):
         names = fetch_user_names()
 
-    assert names == [f"First{i} Last{i}" for i in range(20)]
+    assert names == [f"First{i} Last{i}" for i in range(MAX_PEOPLE)]
 
 
 def test_boundary_year_2000_is_kept() -> None:

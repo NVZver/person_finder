@@ -36,9 +36,15 @@ def test_python_module_run_returns_validated_json() -> None:
     payload = json.loads(result.stdout)
     assert isinstance(payload, dict)
     assert isinstance(payload["data"], list)
+    # Run is capped at 5 people (free-tier rate limits).
+    assert len(payload["data"]) <= 5
     for item in payload["data"]:
         assert isinstance(item["person"], str)
         assert item["info"] is None or isinstance(item["info"], str)
         assert item["source"] in (None, "wiki", "llm")
+        assert item["best_work"] is None or isinstance(item["best_work"], str)
         # Paired nullability: both null, or both populated.
         assert (item["info"] is None) == (item["source"] is None)
+        # best_work requires identification.
+        if item["info"] is None:
+            assert item["best_work"] is None

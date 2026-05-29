@@ -27,6 +27,7 @@ from .metrics import (
     ValidJsonStructure,
 )
 from .stub_agents import (
+    best_work_without_info_payload,
     empty_info_payload,
     malformed_json_payload,
     mismatched_pair_payload,
@@ -45,6 +46,7 @@ REASON_UNKNOWN_PERSON = "unknown person 'Foo Bar'"
 REASON_EMPTY_INFO_AT_INDEX = "empty info at index 1"
 REASON_NULL_INFO_PRESENT = "null info at indices"
 REASON_MISMATCHED_PAIR = "data[1] mismatched pair"
+REASON_BEST_WORK_WITHOUT_INFO = "data[1] has best_work but no info"
 
 
 # === Failure-mode tests ===============================================
@@ -79,6 +81,23 @@ def test_valid_json_structure_rejects_mismatched_pair() -> None:
     assert metric.success is False
     assert metric.score == 0.0
     assert REASON_MISMATCHED_PAIR in metric.reason
+
+
+def test_valid_json_structure_rejects_best_work_without_info() -> None:
+    """`best_work` populated while `info`/`source` are null → success=False;
+    reason names the offending index. You cannot research the best work of
+    a person you could not identify."""
+    test_case = LLMTestCase(
+        input="evaluate best_work requires identification",
+        actual_output=best_work_without_info_payload(PUBLIC_FIGURES),
+    )
+
+    metric = ValidJsonStructure()
+    metric.measure(test_case)
+
+    assert metric.success is False
+    assert metric.score == 0.0
+    assert REASON_BEST_WORK_WITHOUT_INFO in metric.reason
 
 
 def test_person_names_match_input_rejects_unknown_person() -> None:

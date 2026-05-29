@@ -6,7 +6,7 @@ against the live LangChain agent is impossible (we cannot coerce the real
 LLM to emit a specific malformed payload on demand) and wasteful (one
 Groq call per failure mode). The functions below return canned strings
 that mirror the production agent's output contract —
-`{ "data": [{ "person": str, "info": str|None, "source": "wiki"|"llm"|None }] }`
+`{ "data": [{ "person": str, "info": str|None, "source": "wiki"|"llm"|None, "best_work": str|None }] }`
 — and let each failure mode be exercised in microseconds.
 
 Each function returns a `str` (the JSON-shaped agent reply, NOT a parsed
@@ -58,9 +58,11 @@ def unknown_person_payload(input_names: list[str]) -> str:
     surface one-dimensional: a test failure here means the membership
     logic is wrong, not that some other shape check accidentally caught it.
     """
-    items = [{"person": _FOREIGN_NAME, "info": "ghost entry", "source": _SOURCE_WIKI}]
+    items = [
+        {"person": _FOREIGN_NAME, "info": "ghost entry", "source": _SOURCE_WIKI, "best_work": "ghost work"}
+    ]
     items.extend(
-        {"person": name, "info": "stub info", "source": _SOURCE_WIKI}
+        {"person": name, "info": "stub info", "source": _SOURCE_WIKI, "best_work": "stub work"}
         for name in input_names
     )
     return json.dumps({"data": items})
@@ -86,14 +88,14 @@ def empty_info_payload(input_names: list[str]) -> str:
         return json.dumps(
             {
                 "data": [
-                    {"person": anchor, "info": "non-empty", "source": _SOURCE_WIKI},
-                    {"person": anchor, "info": "", "source": _SOURCE_WIKI},
+                    {"person": anchor, "info": "non-empty", "source": _SOURCE_WIKI, "best_work": "work"},
+                    {"person": anchor, "info": "", "source": _SOURCE_WIKI, "best_work": "work"},
                 ]
             }
         )
     items = [
-        {"person": input_names[0], "info": "non-empty", "source": _SOURCE_WIKI},
-        {"person": input_names[1], "info": "", "source": _SOURCE_WIKI},
+        {"person": input_names[0], "info": "non-empty", "source": _SOURCE_WIKI, "best_work": "work"},
+        {"person": input_names[1], "info": "", "source": _SOURCE_WIKI, "best_work": "work"},
     ]
     return json.dumps({"data": items})
 
@@ -106,7 +108,12 @@ def valid_payload(input_names: list[str]) -> str:
     contract.
     """
     items = [
-        {"person": name, "info": f"stub info for {name}", "source": _SOURCE_WIKI}
+        {
+            "person": name,
+            "info": f"stub info for {name}",
+            "source": _SOURCE_WIKI,
+            "best_work": f"notable work of {name}",
+        }
         for name in input_names
     ]
     return json.dumps({"data": items})
@@ -125,16 +132,36 @@ def mismatched_pair_payload(input_names: list[str]) -> str:
         return json.dumps(
             {
                 "data": [
-                    {"person": anchor, "info": "paired info", "source": _SOURCE_WIKI},
-                    {"person": anchor, "info": "orphan info", "source": None},
+                    {"person": anchor, "info": "paired info", "source": _SOURCE_WIKI, "best_work": "work"},
+                    {"person": anchor, "info": "orphan info", "source": None, "best_work": None},
                 ]
             }
         )
     items = [
-        {"person": input_names[0], "info": "paired info", "source": _SOURCE_WIKI},
-        {"person": input_names[1], "info": "orphan info", "source": None},
+        {"person": input_names[0], "info": "paired info", "source": _SOURCE_WIKI, "best_work": "work"},
+        {"person": input_names[1], "info": "orphan info", "source": None, "best_work": None},
     ]
     return json.dumps({"data": items})
+
+
+def best_work_without_info_payload(input_names: list[str]) -> str:
+    """Return a payload where index 1 has `best_work` but null `info`/`source`.
+
+    Index 0 is a valid identified row so the metric's loop must reach index 1.
+    Violates the contract rule "best_work requires identification" — you cannot
+    research the best work of someone you couldn't identify. Drives
+    `ValidJsonStructure` to fail.
+    """
+    anchor = input_names[0] if input_names else "Anonymous"
+    second = input_names[1] if len(input_names) > 1 else anchor
+    return json.dumps(
+        {
+            "data": [
+                {"person": anchor, "info": "real info", "source": _SOURCE_WIKI, "best_work": "real work"},
+                {"person": second, "info": None, "source": None, "best_work": "orphan work"},
+            ]
+        }
+    )
 
 
 def null_payload(input_names: list[str]) -> str:
@@ -146,6 +173,7 @@ def null_payload(input_names: list[str]) -> str:
     famous-roster eval.
     """
     items = [
-        {"person": name, "info": None, "source": None} for name in input_names
+        {"person": name, "info": None, "source": None, "best_work": None}
+        for name in input_names
     ]
     return json.dumps({"data": items})
