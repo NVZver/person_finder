@@ -4,13 +4,6 @@ Zoom into one component: **Person Lookup Agent** (`person_lookup_agent.py`) — 
 
 ## Contract — `PersonResult`
 
-```python
-class PersonResult(BaseModel):
-    info: str | None = None                       # who they are, or None
-    source: Literal["wiki", "llm"] | None = None  # where identity came from
-    best_work: str | None = None                  # notable work, or None
-```
-
 | State | info | source | best_work |
 |---|---|---|---|
 | Unknown | null | null | null |
@@ -25,7 +18,7 @@ flowchart LR
     q -- no --> unk["<b>Unknown</b><br/>all null"]
     q -- yes --> q2{source in wiki/llm?}
     q2 -- yes --> ok["<b>Identified</b><br/>info+source paired"]
-    q2 -- no --> bad["<b>Violation</b><br/>→ repair/coerce"]
+    q2 -- no --> bad["<b>Violation</b><br/>→ repair/normalize"]
 
     classDef neutral fill:#1168bd,stroke:#0b4884,stroke-width:1px,color:#ffffff;
     classDef good fill:#1e8449,stroke:#145a32,stroke-width:1px,color:#ffffff;
@@ -70,16 +63,18 @@ flowchart LR
 
 Agent built once in `lookup_people`, reused across names.
 
-## verify → repair → coerce
+## verify → repair → normalize
+
+The third rung (`_coerce` in source) deterministically rewrites a still-invalid result into a guaranteed-valid shape — it never raises.
 
 ```mermaid
 flowchart TD
     a["_invoke — attempt 1"] --> r1{valid?}
-    r1 -- yes --> done["coerce → row"]
+    r1 -- yes --> done["normalize → row"]
     r1 -- no --> repair["_invoke with problems — attempt 2"]
     repair --> r2{result?}
     r2 -- None --> nullrow["PersonResult() — all null"]
-    r2 -- yes --> coerce["coerce → safe shape"]
+    r2 -- yes --> coerce["normalize → safe shape"]
     coerce --> done2["row"]
 
     classDef step fill:#1168bd,stroke:#0b4884,stroke-width:1px,color:#ffffff;
@@ -92,39 +87,6 @@ flowchart TD
     class nullrow warn;
 ```
 
-```python
-def lookup_person_info(name: str, *, agent: Any) -> PersonResult:
-    result = _invoke(agent, name)                       # 1. attempt
-    problems = _problems(result)                        # 2. VERIFY
-    if problems:
-        result = _invoke(agent, name, repair=problems)  # 3. REPAIR (1 retry, errors fed back)
-    if result is None:
-        return PersonResult()                           # 4a. safe null row
-    return _coerce(result)                              # 4b. COERCE → valid shape
-```
-
-```python
-def _verify(result: PersonResult) -> list[str]:
-    problems: list[str] = []
-    if not _identified(result):
-        if result.source is not None:
-            problems.append("source must be null when the person is not identified")
-        if result.best_work:
-            problems.append("best_work must be null when the person is not identified")
-    elif result.source not in ("wiki", "llm"):
-        problems.append("source must be 'wiki' or 'llm' when info is present")
-    return problems
-```
-
-```python
-def _coerce(result: PersonResult) -> PersonResult:
-    if not _identified(result):
-        return PersonResult(info=None, source=None, best_work=None)
-    best = result.best_work if (result.best_work and not is_unknown(result.best_work)) else None
-    source = result.source if result.source in ("wiki", "llm") else "llm"  # default low-trust, keep recall
-    return PersonResult(info=result.info, source=source, best_work=best)
-```
-
 Pattern: validate boundary → bounded self-heal → deterministic degrade.
 
 ## Dynamic — one name
@@ -132,23 +94,25 @@ Pattern: validate boundary → bounded self-heal → deterministic degrade.
 ```mermaid
 flowchart TD
     s["lookup_person_info(name)"] --> inv["agent.invoke"]
-    inv --> llm1["LLM: call lookup_person?"]
-    llm1 --> tool1["lookup_person → Wikipedia"]
-    tool1 --> id{identified?}
-    id -- no --> unk["UNKNOWN (null)"]
-    id -- yes --> llm2["lookup_best_work → Wikipedia"]
-    llm2 --> struct["PersonResult"]
+    inv --> tool1["lookup_person → Wikipedia"]
+    tool1 --> dec{"LLM: identify?"}
+    dec -- "article matches" --> wiki["Identified<br/>source=wiki"]
+    dec -- "no article,<br/>but confident" --> llmk["Identified<br/>source=llm"]
+    dec -- "neither" --> unk["UNKNOWN (null)"]
+    wiki --> bw["lookup_best_work → Wikipedia<br/><i>else LLM knowledge, else null</i>"]
+    llmk --> bw
+    bw --> struct["PersonResult"]
     unk --> struct
-    struct --> guard["verify→repair→coerce"]
+    struct --> guard["verify→repair→normalize"]
     guard --> row["row in data[]"]
 
     classDef step fill:#1168bd,stroke:#0b4884,stroke-width:1px,color:#ffffff;
     classDef model fill:#08427b,stroke:#052e56,stroke-width:1px,color:#ffffff;
     classDef dec  fill:#5a4a8a,stroke:#3f3463,stroke-width:1px,color:#ffffff;
     classDef good fill:#1e8449,stroke:#145a32,stroke-width:1px,color:#ffffff;
-    class s,inv,tool1,struct,guard step;
-    class llm1,llm2 model;
-    class id dec;
+    class s,inv,tool1,bw,struct,guard step;
+    class wiki,llmk model;
+    class dec dec;
     class unk,row good;
 ```
 

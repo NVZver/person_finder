@@ -9,7 +9,7 @@ flowchart LR
         direction LR
         main["<b>Entrypoint</b><br/><i>main.py</i><br/>orchestrate · errors · JSON"]
         loader["<b>Person Loader</b><br/><i>person_loader.py</i><br/>fetch · filter · cap"]
-        agent["<b>Person Lookup Agent</b><br/><i>person_lookup_agent.py</i><br/>tool-calling · verify→repair→coerce"]
+        agent["<b>Person Lookup Agent</b><br/><i>person_lookup_agent.py</i><br/>tool-calling · verify→repair→normalize"]
         tools["<b>Agent Tools</b><br/><i>tools.py</i><br/>lookup_person · lookup_best_work"]
         wiki["<b>Wikipedia Access</b><br/><i>wikipedia.py</i><br/>raw fetch · failure → 'no article'"]
         config["<b>Config + LLM Factory</b><br/><i>config.py</i>"]
@@ -43,30 +43,15 @@ flowchart LR
 
 Solid edges = data flow · dotted = "uses" (helpers).
 
-| Component | File | Responsibility | Guarantee |
-|---|---|---|---|
-| Entrypoint | `main.py` | wire pipeline, map errors, print | clean JSON on stdout, or non-zero exit |
-| Person Loader | `person_loader.py` | fetch → filter (DOB ≤ 2000) → cap (≤5) | bounded name list, or `UserFetchError` |
-| Person Lookup Agent | `person_lookup_agent.py` | own decision tree, enforce contract | every row contract-valid |
-| Agent Tools | `tools.py` | expose Wikipedia as LLM tools | always return usable string (never raise) |
-| Wikipedia Access | `wikipedia.py` | wrap `wikipedia` lib | `str` on hit, `None` on any miss/error |
-| Config + LLM Factory | `config.py` | constants + one `ChatGroq` | import touches no disk/network |
-| Text Utils | `text.py` | `UNKNOWN` sentinel match | consistent "not identified" detection |
-
-## Run flow
-
-```
-fetch_user_names()  → [names]                                   (loader)
-for each name:                                                  (agent.lookup_people)
-  invoke agent → LLM: lookup_person? → Wikipedia                (identify)
-                 if identified → lookup_best_work → Wikipedia   (best work)
-                 → PersonResult
-  verify → valid? keep : repair(1x) → coerce
-print {"data": [{person, info, source, best_work}, ...]}        (main → stdout)
-```
-
-## Dependency direction
-`main → agent → tools → wikipedia → (API)`; `agent → config`. Points inward only — each layer independently testable/swappable.
+| Component | File | Responsibility |
+|---|---|---|
+| Entrypoint | `main.py` | wire pipeline, map errors, print |
+| Person Loader | `person_loader.py` | fetch → filter (DOB ≤ 2000) → cap (≤5) |
+| Person Lookup Agent | `person_lookup_agent.py` | own decision tree, enforce contract |
+| Agent Tools | `tools.py` | expose Wikipedia as LLM tools |
+| Wikipedia Access | `wikipedia.py` | wrap `wikipedia` lib |
+| Config + LLM Factory | `config.py` | constants + one `ChatGroq` |
+| Text Utils | `text.py` | `UNKNOWN` sentinel match |
 
 ## Defense in depth (every layer has a fallback)
 | Failure | Caught in | Result |
@@ -74,7 +59,7 @@ print {"data": [{person, info, source, best_work}, ...]}        (main → stdout
 | wiki miss / network | `wikipedia.py` | `None` → tool returns "no article" |
 | tool finds nothing | agent (prompt) | fall back to model knowledge (`source:"llm"`) |
 | can't identify | agent (prompt) | `UNKNOWN` → all fields null |
-| contract violation | agent (`_verify`) | 1 repair retry → coerce to safe shape |
+| contract violation | agent (`_verify`) | 1 repair retry → normalize to safe shape |
 | randomuser/Groq down | `main.py` | clean stderr message, non-zero exit |
 
 Smallest failure unit = one name / one field; nothing aborts the batch.
